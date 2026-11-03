@@ -96,6 +96,11 @@ struct FakeServer {
     calls: Arc<AtomicUsize>,
     started: Arc<Notify>,
     cancelled: Arc<Notify>,
+    discovery_gate: bool,
+    discovery_started: Arc<Notify>,
+    release: Arc<Notify>,
+    custom_tool: Option<Tool>,
+    custom_result: Option<CallToolResult>,
 }
 
 impl ServerHandler for FakeServer {
@@ -110,9 +115,16 @@ impl ServerHandler for FakeServer {
         request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        if self.discovery_gate {
+            self.discovery_started.notify_one();
+            self.release.notified().await;
+        }
         let cursor = request.and_then(|request| request.cursor);
         let (tools, next_cursor) = match (self.pages, cursor.as_deref()) {
-            (Pages::Single, None) => (vec![definition(TOOL)], None),
+            (Pages::Single, None) => (
+                vec![self.custom_tool.clone().unwrap_or_else(|| definition(TOOL))],
+                None,
+            ),
             (_, None) => (vec![definition(TOOL)], Some("next-page".into())),
             (Pages::Paginated, Some("next-page")) => (vec![definition("second-tool")], None),
             (Pages::Duplicate, Some("next-page")) => (vec![definition(TOOL)], None),
@@ -138,6 +150,9 @@ impl ServerHandler for FakeServer {
     ) -> Result<CallToolResponse, ErrorData> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         assert_eq!(request.name.as_ref(), TOOL);
+        if let Some(result) = &self.custom_result {
+            return Ok(result.clone().into());
+        }
         let value = request
             .arguments
             .as_ref()
@@ -151,6 +166,11 @@ impl ServerHandler for FakeServer {
             "invalid-output" => CallToolResult::structured(json!({"echo": 42})),
             "missing-output" => {
                 CallToolResult::success(vec![ContentBlock::text("no structured output")])
+            }
+            "wait" => {
+                self.started.notify_one();
+                self.release.notified().await;
+                success()
             }
             "protocol-error" => {
                 return Err(ErrorData::internal_error("downstream protocol error", None));
@@ -185,7 +205,7 @@ async fn connect<S: ServerHandler + 'static>(
 async fn registry(fake: FakeServer) -> (Registry, RunningService<RoleServer, FakeServer>) {
     let (client, server) = connect(fake).await;
     let mut registry = Registry::default();
-    bounded(registry.insert_client(SERVER.into(), client, WAIT)).await;
+    bounded(registry.insert_client(SERVER.into(), client)).await;
     (registry, server)
 }
 
@@ -199,14 +219,14 @@ fn args(value: &str) -> Value {
 }
 
 #[tokio::test]
-async fn discovers_metadata_and_exposes_only_run_with_a_structured_listing() {
+async fn discovers_metadata_and_exposes_language_tools_and_help() {
     let config = Config::parse(
         r#"{"mcpServers":{"broken-server":{"command":"/mcpl-test-missing-executable"}}}"#,
     )
     .unwrap();
-    let mut registry = bounded(Registry::connect(config, WAIT)).await;
+    let mut registry = bounded(Registry::connect(config)).await;
     let (downstream_client, downstream) = connect(FakeServer::default()).await;
-    bounded(registry.insert_client(SERVER.into(), downstream_client, WAIT)).await;
+    bounded(registry.insert_client(SERVER.into(), downstream_client)).await;
     let snapshot = registry.snapshot();
     assert_eq!(snapshot["broken-server"].status, ServerStatus::Unavailable);
     assert!(
@@ -241,39 +261,22 @@ async fn discovers_metadata_and_exposes_only_run_with_a_structured_listing() {
     let shared = Arc::new(registry);
     let (mut client, mut proxy) = connect(ProxyServer::new(shared.clone())).await;
     let tools = bounded(client.list_tools(None)).await.unwrap();
-    assert_eq!(tools.tools.len(), 1);
+    assert_eq!(tools.tools.len(), 3);
     assert_eq!(tools.tools[0].name, "run");
-    let result = bounded(
-        client.call_tool(
-            CallToolRequestParams::new("run").with_arguments(
-                json!({"program": "this is deliberately not executed"})
-                    .as_object()
-                    .unwrap()
-                    .clone(),
-            ),
-        ),
-    )
-    .await
-    .unwrap();
-    let listing = result.structured_content.expect("structured listing");
-    assert_eq!(listing["stub"], true);
-    let servers = listing["servers"].as_array().unwrap();
-    assert_eq!(servers.len(), 2);
-    assert_eq!(servers[0]["name"], "broken-server");
-    assert_eq!(servers[0]["status"], "unavailable");
-    assert_eq!(servers[0]["tools"], json!([]));
-    assert!(
-        servers[0]["error"]
-            .as_str()
-            .unwrap()
-            .contains("could not spawn")
-    );
-    assert_eq!(
-        servers[1],
-        json!({
-            "name": SERVER, "status": "ready", "tools": [TOOL], "error": null
-        })
-    );
+    let result = bounded(client.call_tool(CallToolRequestParams::new("help")))
+        .await
+        .unwrap();
+    let listing = result
+        .content
+        .iter()
+        .filter_map(|b| b.as_text())
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(listing.contains("broken-server"));
+    assert!(listing.contains("unavailable"));
+    assert!(listing.contains("could not spawn"));
+    assert!(listing.contains(SERVER));
     assert_ne!(result.is_error, Some(true));
 
     bounded(client.close_with_timeout(WAIT)).await.unwrap();
@@ -302,7 +305,9 @@ async fn run_validates_program_and_rejects_unknown_tools() {
         )
         .await;
         assert!(
-            result.is_err(),
+            result
+                .as_ref()
+                .is_ok_and(|result| result.is_error == Some(true)),
             "accepted invalid run arguments: {arguments}"
         );
     }
@@ -319,7 +324,7 @@ async fn run_validates_program_and_rejects_unknown_tools() {
     )
     .await
     .unwrap();
-    assert_eq!(result.structured_content.unwrap()["servers"], json!([]));
+    assert_eq!(result.content[0].as_text().unwrap().text, "");
     bounded(client.close_with_timeout(WAIT)).await.unwrap();
     bounded(proxy.close_with_timeout(WAIT)).await.unwrap();
 }
@@ -329,7 +334,7 @@ async fn dispatch_preserves_full_results_and_distinguishes_failures() {
     let fake = FakeServer::default();
     let calls = fake.calls.clone();
     let (registry, downstream) = registry(fake).await;
-    let result = bounded(registry.call_tool(SERVER, TOOL, args("hello"), WAIT))
+    let result = bounded(registry.call_tool(SERVER, TOOL, args("hello")))
         .await
         .unwrap();
     let expected = success();
@@ -340,11 +345,11 @@ async fn dispatch_preserves_full_results_and_distinguishes_failures() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     assert!(
-        matches!(bounded(registry.call_tool("missing-server", TOOL, args("hello"), WAIT)).await,
+        matches!(bounded(registry.call_tool("missing-server", TOOL, args("hello"))).await,
         Err(CallError::UnknownServer(name)) if name == "missing-server")
     );
     assert!(
-        matches!(bounded(registry.call_tool(SERVER, "missing-tool", args("hello"), WAIT)).await,
+        matches!(bounded(registry.call_tool(SERVER, "missing-tool", args("hello"))).await,
         Err(CallError::UnknownTool { server, tool }) if server == SERVER && tool == "missing-tool")
     );
     for arguments in [
@@ -355,7 +360,7 @@ async fn dispatch_preserves_full_results_and_distinguishes_failures() {
         json!({"value": "ok", "extra": true}),
     ] {
         assert!(matches!(
-            bounded(registry.call_tool(SERVER, TOOL, arguments, WAIT)).await,
+            bounded(registry.call_tool(SERVER, TOOL, arguments)).await,
             Err(CallError::InvalidArguments(_))
         ));
     }
@@ -365,7 +370,7 @@ async fn dispatch_preserves_full_results_and_distinguishes_failures() {
         "invalid calls reached the downstream"
     );
 
-    match bounded(registry.call_tool(SERVER, TOOL, args("tool-error"), WAIT)).await {
+    match bounded(registry.call_tool(SERVER, TOOL, args("tool-error"))).await {
         Err(CallError::ToolReported(result)) => {
             assert_eq!(result.is_error, Some(true));
             assert_eq!(
@@ -376,7 +381,7 @@ async fn dispatch_preserves_full_results_and_distinguishes_failures() {
         other => panic!("expected tool-level error, got {other:?}"),
     }
     for value in ["invalid-output", "missing-output"] {
-        match bounded(registry.call_tool(SERVER, TOOL, args(value), WAIT)).await {
+        match bounded(registry.call_tool(SERVER, TOOL, args(value))).await {
             Err(CallError::InvalidResult { result, message }) => {
                 assert!(!message.is_empty());
                 if value == "invalid-output" {
@@ -392,11 +397,11 @@ async fn dispatch_preserves_full_results_and_distinguishes_failures() {
         }
     }
     assert!(matches!(
-        bounded(registry.call_tool(SERVER, TOOL, args("protocol-error"), WAIT)).await,
+        bounded(registry.call_tool(SERVER, TOOL, args("protocol-error"))).await,
         Err(CallError::Protocol(_))
     ));
     assert!(
-        bounded(registry.call_tool(SERVER, TOOL, args("hello"), WAIT))
+        bounded(registry.call_tool(SERVER, TOOL, args("hello")))
             .await
             .is_ok()
     );
@@ -404,19 +409,13 @@ async fn dispatch_preserves_full_results_and_distinguishes_failures() {
 }
 
 #[tokio::test]
-async fn timeout_and_abandoned_calls_cancel_the_downstream_request() {
+async fn abandoned_calls_cancel_the_downstream_request() {
     let fake = FakeServer::default();
     let started = fake.started.clone();
     let cancelled = fake.cancelled.clone();
     let (registry, downstream) = registry(fake).await;
-    let error =
-        bounded(registry.call_tool(SERVER, TOOL, args("hang"), Duration::from_millis(200))).await;
-    assert!(matches!(error, Err(CallError::Timeout)));
-    bounded(started.notified()).await;
-    bounded(cancelled.notified()).await;
-
     {
-        let mut call = Box::pin(registry.call_tool(SERVER, TOOL, args("hang"), WAIT));
+        let mut call = Box::pin(registry.call_tool(SERVER, TOOL, args("hang")));
         bounded(async {
             tokio::select! {
                 result = &mut call => panic!("hanging call completed: {result:?}"),
@@ -428,7 +427,7 @@ async fn timeout_and_abandoned_calls_cancel_the_downstream_request() {
     }
     bounded(cancelled.notified()).await;
     assert!(
-        bounded(registry.call_tool(SERVER, TOOL, args("hello"), WAIT))
+        bounded(registry.call_tool(SERVER, TOOL, args("hello")))
             .await
             .is_ok()
     );
@@ -472,9 +471,170 @@ async fn invalid_discovery_is_unavailable_not_a_partial_tool_catalogue() {
         assert!(server.tools.is_empty());
         assert!(server.error.as_deref().unwrap().contains(message));
         assert!(matches!(
-            bounded(registry.call_tool(SERVER, TOOL, args("hello"), WAIT)).await,
+            bounded(registry.call_tool(SERVER, TOOL, args("hello"))).await,
             Err(CallError::Unavailable(_))
         ));
         shutdown(registry, downstream).await;
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn discovery_and_calls_have_no_wall_clock_deadline() {
+    let fake = FakeServer {
+        discovery_gate: true,
+        ..Default::default()
+    };
+    let discovery_started = fake.discovery_started.clone();
+    let started = fake.started.clone();
+    let release = fake.release.clone();
+    let (client, downstream) = connect(fake).await;
+    let mut registry = Registry::default();
+    {
+        let mut discovery = Box::pin(registry.insert_client(SERVER.into(), client));
+        tokio::select! {
+            _ = &mut discovery => panic!("discovery completed before release"),
+            _ = discovery_started.notified() => {}
+        }
+        tokio::time::advance(Duration::from_secs(24 * 60 * 60)).await;
+        assert!(futures_util::poll!(&mut discovery).is_pending());
+        release.notify_one();
+        discovery.await;
+    }
+    assert_eq!(registry.snapshot()[SERVER].status, ServerStatus::Ready);
+    let mut call = Box::pin(registry.call_tool(SERVER, TOOL, args("wait")));
+    tokio::select! {
+        result = &mut call => panic!("call completed before release: {result:?}"),
+        _ = started.notified() => {}
+    }
+    tokio::time::advance(Duration::from_secs(24 * 60 * 60)).await;
+    assert!(futures_util::poll!(&mut call).is_pending());
+    release.notify_one();
+    assert!(call.await.is_ok());
+    shutdown(registry, downstream).await;
+}
+
+#[tokio::test]
+async fn schema_output_falls_back_to_exactly_one_text_block() {
+    for content in [
+        vec![ContentBlock::text(r#"{"echo":"text"}"#)],
+        vec![
+            ContentBlock::image("aGVsbG8=", "image/png"),
+            ContentBlock::text(r#"{"echo":"text"}"#),
+        ],
+    ] {
+        let expected_content = content.clone();
+        let (registry, downstream) = registry(FakeServer {
+            custom_result: Some(CallToolResult::success(content)),
+            ..Default::default()
+        })
+        .await;
+        let result = bounded(registry.call_tool(SERVER, TOOL, args("hello")))
+            .await
+            .unwrap();
+        assert_eq!(result.structured_content, Some(json!({"echo": "text"})));
+        assert_eq!(result.content, expected_content);
+        shutdown(registry, downstream).await;
+    }
+}
+
+#[tokio::test]
+async fn invalid_structured_or_ambiguous_text_output_never_falls_back() {
+    let mut invalid_structured = CallToolResult::structured(json!({"echo": 42}));
+    invalid_structured.content = vec![ContentBlock::text(r#"{"echo":"valid text"}"#)];
+    for result in [
+        invalid_structured,
+        CallToolResult::success(vec![]),
+        CallToolResult::success(vec![ContentBlock::image("aGVsbG8=", "image/png")]),
+        CallToolResult::success(vec![
+            ContentBlock::text(r#"{"echo":"one"}"#),
+            ContentBlock::text(r#"{"echo":"two"}"#),
+        ]),
+        CallToolResult::success(vec![ContentBlock::text(r#"{"echo":42}"#)]),
+        CallToolResult::success(vec![ContentBlock::text("```json\n{}\n```")]),
+    ] {
+        let mut expected = result.clone();
+        expected.result_type = None;
+        let (registry, downstream) = registry(FakeServer {
+            custom_result: Some(result),
+            ..Default::default()
+        })
+        .await;
+        match bounded(registry.call_tool(SERVER, TOOL, args("hello"))).await {
+            Err(CallError::InvalidResult { result, .. }) => assert_eq!(*result, expected),
+            result => panic!("expected invalid result, got {result:?}"),
+        }
+        shutdown(registry, downstream).await;
+    }
+}
+
+#[tokio::test]
+async fn tools_without_output_schema_preserve_content_without_parsing() {
+    let mut tool = definition(TOOL);
+    tool.output_schema = None;
+    let mut expected = CallToolResult::structured(json!({"echo": 42}));
+    expected.content = vec![ContentBlock::text("not JSON")];
+    expected.result_type = None;
+    let (registry, downstream) = registry(FakeServer {
+        custom_tool: Some(tool),
+        custom_result: Some(expected.clone()),
+        ..Default::default()
+    })
+    .await;
+    let result = bounded(registry.call_tool(SERVER, TOOL, args("hello")))
+        .await
+        .unwrap();
+    assert_eq!(result, expected);
+    shutdown(registry, downstream).await;
+}
+
+#[tokio::test]
+async fn supported_schema_formats_are_assertions_on_inputs_and_outputs() {
+    let mut tool = definition(TOOL);
+    let mut input = (*tool.input_schema).clone();
+    input["properties"]["value"]["format"] = json!("email");
+    tool.input_schema = Arc::new(input);
+    let mut output = (**tool.output_schema.as_ref().unwrap()).clone();
+    output["properties"]["echo"]["format"] = json!("email");
+    tool.output_schema = Some(Arc::new(output));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (registry, downstream) = registry(FakeServer {
+        custom_tool: Some(tool),
+        custom_result: Some(success()),
+        calls: calls.clone(),
+        ..Default::default()
+    })
+    .await;
+    assert!(matches!(
+        bounded(registry.call_tool(SERVER, TOOL, args("not an email"))).await,
+        Err(CallError::InvalidArguments(_))
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(matches!(
+        bounded(registry.call_tool(SERVER, TOOL, args("a@example.com"))).await,
+        Err(CallError::InvalidResult { .. })
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    shutdown(registry, downstream).await;
+}
+
+#[tokio::test]
+async fn tool_reported_errors_take_precedence_over_output_schema_validation() {
+    let mut tool = definition(TOOL);
+    tool.output_schema = Some(Arc::new(
+        json!({"type": "not-a-valid-type"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    ));
+    let (registry, downstream) = registry(FakeServer {
+        custom_tool: Some(tool),
+        custom_result: Some(CallToolResult::error(vec![ContentBlock::text("failure")])),
+        ..Default::default()
+    })
+    .await;
+    assert!(matches!(
+        bounded(registry.call_tool(SERVER, TOOL, args("hello"))).await,
+        Err(CallError::ToolReported(_))
+    ));
+    shutdown(registry, downstream).await;
 }

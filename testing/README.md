@@ -5,8 +5,8 @@ A small, single-task agent loop using [Pi](https://pi.dev/)'s
 bridging to MCPL over stdio. This is an experimental test rig, not an official
 MCPL client or a coding-agent installation.
 
-The model gets **only `run`**, with its description and input schema taken
-unchanged from MCPL's `tools/list`. The system prompt is just
+The model gets **only `run`, `help` and `show`**, with their descriptions and input
+schemas taken unchanged from MCPL's `tools/list`. The system prompt is just
 `You are a helpful assistant completing the user's task.` No language tutorial,
 server instructions, files, skills, shell tools or downstream tool declarations
 are added. One MCPL connection stays open for the entire agent loop, preserving
@@ -28,19 +28,20 @@ read -rs -p 'LiteLLM API key: ' LITELLM_API_KEY; echo
 export LITELLM_API_KEY
 
 npm start -- --config empty.json \
-  'Call the available tool once to inspect downstream availability, then briefly report the result.'
+  'Use help to discover the available servers and builtins. Run a program that sums [1, 2, 3], storing the result as total. Use show to inspect total, then report it.'
 ```
 
-`empty.json` has no downstreams and is enough to exercise the current proxy stub.
-A successful smoke run prints a `run` call, an MCP result with `stub: true` and
-`servers: []`, then the model's final answer. This verifies plumbing, not language
-execution. With the Playwright example:
+`empty.json` has no downstreams and is enough to exercise real MCPL language
+execution. A successful smoke run calls `help`, executes a program through `run`,
+and reads the resulting session binding through `show`, then reports the answer.
+MCPL's tool descriptions and progressive `help` output are the only language
+instructions the model receives. With the Playwright example:
 
 ```sh
-# Install ahead of time, outside MCPL's downstream startup deadline:
+# Fetch the pinned downstream package ahead of time:
 npx --yes @playwright/mcp@0.0.84 --help
 npm start -- --config ../examples/playwright.json \
-  'Inspect downstream availability and report which server is ready.'
+  'Use help to discover the browser server and its tools. Through an MCPL program, open https://example.com and get its page title. Store the title in a session binding and inspect it with show, then report the title.'
 ```
 
 `model.json` selects `chatgpt/gpt-6.1-sol` at
@@ -64,12 +65,17 @@ Paths are relative to the working directory. Each invocation starts a fresh
 session; there is no interactive REPL or session persistence. Ctrl-C/SIGTERM
 aborts the loop and closes the MCP connection. A model failure, interruption,
 output-token limit, or turn limit exits nonzero. Tool errors are returned to the
-model so it can recover. Startup has a 60-second timeout and individual MCP tool
-calls have a 120-second timeout.
+model so it can recover. MCP initialization, discovery and tool calls have no
+wall-clock deadline; explicit cancellation still works. `npm ci` runs the local
+`patch-mcp-timeouts.mjs` postinstall script against the pinned MCP SDK, which has
+no upstream timeout-disable option. The patch gives `timeout: 0` the explicit
+meaning “do not create a timer” in both its ESM and CommonJS builds; this is local
+patch semantics, not upstream SDK behavior. It fails loudly if the SDK version or
+patch anchor changes. Do not install with `--ignore-scripts`.
 
 ## Transcript
 
-Stdout contains JSON-line events for the tool declaration/system prompt, each
+Stdout contains JSON-line events for the tool declarations/system prompt, each
 completed model message, tool call (including the program), full raw MCP result,
 and Pi tool result. Text blocks are passed unchanged and in order, including
 multi-part previews and errors. Images are forwarded as images; other MCP content
@@ -82,7 +88,7 @@ To save a clean JSONL transcript without npm's banner:
 ```sh
 set -o pipefail
 npm run --silent start -- --config empty.json \
-  'Call the available tool once, then report the result.' | tee smoke.jsonl
+  'Use help, then run total = 1 + 2 + 3; and use show to inspect total. Report the result.' | tee smoke.jsonl
 ```
 
 MCPL/downstream diagnostic logs go to stderr. Transcripts can contain sensitive
@@ -98,6 +104,8 @@ npm test
 ```
 
 Tests use a local fake OpenAI-compatible streaming endpoint, not a paid model.
-They exercise the real Pi → MCP → MCPL loop and the forwarding contract.
+They exercise all three tools through the real Pi → MCP → MCPL loop, verify
+sequential calls and session binding reuse, and check that every discovered
+description/schema and returned text reaches Pi unchanged.
 The live smoke commands above remain the manual acceptance check against
 LiteLLM. They do not constitute the later end-to-end language/Playwright demo.

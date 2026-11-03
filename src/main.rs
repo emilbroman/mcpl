@@ -2,11 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use clap::Parser;
-use mcpl::{
-    config::Config,
-    registry::{DEFAULT_TIMEOUT, Registry},
-    server::ProxyServer,
-};
+use mcpl::{config::Config, registry::Registry, server::ProxyServer};
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::EnvFilter;
 
@@ -27,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let args = Args::parse();
     let config = Config::load(&args.config)?;
-    let mut registry = Arc::new(Registry::connect(config, DEFAULT_TIMEOUT).await);
+    let mut registry = Arc::new(Registry::connect(config).await);
     let result = async {
         let service = ProxyServer::new(registry.clone())
             .serve(stdio())

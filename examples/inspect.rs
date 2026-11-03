@@ -1,6 +1,6 @@
-use std::{process::Stdio, time::Duration};
+use std::process::Stdio;
 
-use anyhow::{Context, bail};
+use anyhow::bail;
 use rmcp::{ServiceExt, model::CallToolRequestParams, transport::TokioChildProcess};
 use serde_json::json;
 
@@ -15,27 +15,27 @@ async fn main() -> anyhow::Result<()> {
     let (transport, _) = TokioChildProcess::builder(command)
         .stderr(Stdio::inherit())
         .spawn()?;
-    let mut client = tokio::time::timeout(Duration::from_secs(45), ().serve(transport))
-        .await
-        .context("proxy startup timed out")??;
-    let result = tokio::time::timeout(Duration::from_secs(10), async {
+    let mut client = ().serve(transport).await?;
+    let result = async {
         let tools = client.list_all_tools().await?;
         println!("tools/list: {}", serde_json::to_string_pretty(&tools)?);
         anyhow::ensure!(
-            tools.len() == 1 && tools[0].name == "run",
-            "expected only the run tool"
+            tools.len() == 3
+                && ["run", "help", "show"]
+                    .iter()
+                    .all(|name| tools.iter().any(|tool| tool.name == *name)),
+            "expected the run, help and show tools"
         );
         let result = client
             .call_tool(
-                CallToolRequestParams::new("run")
-                    .with_arguments(json!({"program": "inspect"}).as_object().unwrap().clone()),
+                CallToolRequestParams::new("help")
+                    .with_arguments(json!({}).as_object().unwrap().clone()),
             )
             .await?;
-        println!("run: {}", serde_json::to_string_pretty(&result)?);
+        println!("help: {}", serde_json::to_string_pretty(&result)?);
         anyhow::Ok(())
-    })
-    .await
-    .context("inspection timed out")?;
-    client.close_with_timeout(Duration::from_secs(10)).await?;
+    }
+    .await;
+    client.close().await?;
     result
 }

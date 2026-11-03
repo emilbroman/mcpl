@@ -4,8 +4,9 @@
 [MCPL language specification](language.md). It parses and checks programs against
 session types, schema-derived servers, and builtins. It does not evaluate
 expressions, call downstream tools, mutate the supplied environment, or commit
-session bindings. The upstream MCP `run` tool is still the discovery stub; there
-is no frontend CLI or working language runtime yet.
+session bindings. The upstream MCP server integrates this library with the
+runtime: `run` checks a whole program before executing it, and `show` checks one
+expression before evaluation. There is no standalone frontend CLI.
 
 ## Check a program or expression
 
@@ -74,7 +75,8 @@ fn main() {
   bindings. Any error prevents a checked program from being returned.
 - `check_expression(&str, &Environment) -> Result<CheckedExpression, Vec<Diagnostic>>`
   checks one expression without allocating an automatic name or session binding.
-  This is a preflight building block for the future `show` tool, not evaluation.
+  The server uses this preflight entry point for `show`; checking alone does not
+  evaluate the expression.
 
 `Program`, `Expr`, and `Span` are re-exported at `mcpl::frontend`; statement and
 expression variants live in `frontend::ast`. The checked result types are
@@ -117,14 +119,15 @@ commit **only after that statement succeeds at runtime**. Explicit declarations
 and generated `resN` names are checked for collisions, including declarations
 later in the same program. Checking itself changes none of the supplied state.
 
-A future interpreter must preflight the entire program before executing any
-statement. After each successful statement it must store its value, insert the
-**complete planned `Binding`** into `environment.bindings`, add its name to
-`reserved`, and set `environment.next_result` to the planned counter. Do not
-rebuild bindings with `Binding::new(binding.display_type)`: that loses literal
-precision and builtin identity. If a later statement fails, keep earlier
-successful commits and do not commit the failed statement or remaining plans.
-This is an integration contract, not an implemented evaluator.
+The server preflights the entire program before executing any statement.
+After each successful statement, `SessionState::commit` stores its value, inserts
+the **complete planned `Binding`** into `environment.bindings`, adds its name to
+`reserved`, and sets `environment.next_result` to the planned counter. Embedders
+must preserve this contract: rebuilding with
+`Binding::new(binding.display_type)` loses literal precision and builtin identity.
+If a later statement fails, earlier successful commits remain; the failed
+statement and remaining plans are not committed. The frontend itself still
+performs none of these runtime operations.
 
 ## Checked expression metadata
 
@@ -194,19 +197,19 @@ source string into runtime field accesses:
 4. String indexing, such as `s["x.y"]`, selects exactly one key without joining.
 
 For example, with both `a` and `a.b` bound, `a.b.c` selects root `a.b` then key
-`c`. With tools `x` and `x.y`, `s.x.y` selects the `x.y` tool. An interpreter
-must use the checked resolutions and index AST, never independently re-split
-source strings or guess a split from runtime values. Hyphenated symbols are also
-preserved: `a-b` is a name, while `a - b` is subtraction. Binary operators require
-surrounding whitespace.
+`c`. With tools `x` and `x.y`, `s.x.y` selects the `x.y` tool. The runtime uses
+these checked resolutions and index AST rather than independently re-splitting
+source strings or guessing a split from runtime values. Hyphenated symbols are
+also preserved: `a-b` is a name, while `a - b` is subtraction. Binary operators
+require surrounding whitespace.
 
 ## Diagnostics and deterministic limits
 
 `Diagnostic` has a `category`, `message`, byte `span`, and optional `hint`.
 `Category` distinguishes `Syntax`, `Type`, `Runtime`, and `Limit`, displayed as
 `syntax error`, `type error`, `runtime error`, and `limit exceeded`. Parser and
-checker errors use the relevant frontend categories; `Runtime` is available for
-execution diagnostics without implementing execution here.
+checker errors use the relevant frontend categories; the evaluator uses
+`Runtime` and `Limit` for execution diagnostics through the same rendering API.
 
 Use `diagnostic.render(source)` for one error or
 `render_diagnostics(&diagnostics, source)` for the batch. Output includes a
@@ -216,8 +219,7 @@ marker. Excerpts and diagnostic text are clipped to keep rendering bounded.
 The parser returns its first error; checking collects up to ten distinct errors,
 sorted by source position.
 
-Frontend limits are independent of the future interpreter's fuel and tool-call
-budgets:
+Frontend limits are independent of the evaluator's fuel and tool-call budgets:
 
 - Source is limited to 64 KiB and expression/AST nesting to 256, including
   grouping and long operator/postfix chains, not just bracket nesting.
@@ -229,8 +231,8 @@ budgets:
   proofs fail conservatively rather than accepting an unproved relation.
 
 There are no wall-clock deadlines or tool I/O in the frontend. These static
-bounds are not runtime fuel, memory accounting, LRU eviction, or downstream-call
-limits, which belong to the interpreter.
+bounds are separate from the implemented runtime's fuel, memory accounting,
+LRU eviction, and downstream-call limits.
 
 ## Regression coverage
 
@@ -243,6 +245,7 @@ examples from `docs/language.md` using the source corpus under
 All twelve diagnostic templates in specification section 13 have golden text.
 Eight syntax/type cases actually execute the frontend checker. The remaining
 four (array index, downstream failure, eviction, and fuel exhaustion) exercise
-only diagnostic rendering with constructed diagnostics. They are not evidence
-of an implemented runtime; execution and partial-commit behavior remain the
-interpreter ticket's responsibility.
+only diagnostic rendering with constructed diagnostics. Those frontend goldens
+test formatting, not execution. Runtime and session tests separately cover
+evaluation failures, binding persistence, partial commits, eviction, and resource
+limits.
