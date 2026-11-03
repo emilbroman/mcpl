@@ -1,0 +1,26 @@
+{
+  "method": "js-tiktoken@1.0.21, o200k_base encoding; proxy estimate, not verified model-native tokenizer",
+  "contextWindow": 128000,
+  "descriptions": [
+    {
+      "name": "run",
+      "characters": 1473,
+      "utf8Bytes": 1479,
+      "estimatedTokens": 364
+    },
+    {
+      "name": "help",
+      "characters": 377,
+      "utf8Bytes": 377,
+      "estimatedTokens": 82
+    },
+    {
+      "name": "show",
+      "characters": 416,
+      "utf8Bytes": 416,
+      "estimatedTokens": 80
+    }
+  ],
+  "serializedToolDeclarationsEstimatedTokens": 694,
+  "firstBaselineRequestReportedInputTokens": 705
+}

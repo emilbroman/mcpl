@@ -109,3 +109,10 @@ sequential calls and session binding reuse, and check that every discovered
 description/schema and returned text reaches Pi unchanged.
 The live smoke commands above remain the manual acceptance check against
 LiteLLM. They do not constitute the later end-to-end language/Playwright demo.
+
+## Manual browser demonstration
+
+See the [recorded Playwright experiment](transcripts/browser-demo/README.md) for
+raw live-model transcripts, successful MCPL aggregation, baseline limitations,
+and follow-up questions. The [demo instructions](demo/README.md) include the
+deterministic page, independent ground truth and reproduction steps.

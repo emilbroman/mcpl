@@ -1,0 +1,15 @@
+{
+  "needle": "Rust",
+  "caseSensitive": true,
+  "totalLinks": 80,
+  "matchingTexts": [
+    "Rust ownership guide",
+    "Async Rust patterns",
+    "Rust on embedded devices",
+    "Learning Rust macros",
+    "Rust error handling",
+    "Web services in Rust",
+    "Rust release notes"
+  ],
+  "matchingCount": 7
+}

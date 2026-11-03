@@ -1,0 +1,9 @@
+{
+  "start": "2026-11-03T18:53:23+01:00",
+  "end": "2026-11-03T18:53:45+01:00",
+  "exitCode": 0,
+  "prompt": "Open http://127.0.0.1/links.html, list all link texts containing the case-sensitive substring \"Rust\", and tell me how many matching links there are.",
+  "mcplRevision": "3cf212da7ff604724b739751f0d9803f8c7b2414",
+  "fontconfigConfigured": false,
+  "maxTurns": 12
+}

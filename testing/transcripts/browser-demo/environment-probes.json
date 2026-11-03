@@ -1,0 +1,72 @@
+{
+  "withoutFontconfig": [
+    {
+      "program": "navigation = playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"});",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "navigation: Content[] (1 item) = [{type: \"text\", text: \"### Ran Playwright code\\n```js\\nawait page.goto('http://127.0.0.1/links.html');\\n```\\n### Page\\n- Page URL: http://127.0.0.1/\u2026\"}]"
+          }
+        ],
+        "isError": false
+      }
+    },
+    {
+      "program": "probe = playwright.browser_evaluate({\"function\":\"() => { const a = document.querySelector('a'); return {inner: a.innerText, content: a.textContent, bodyInner: document.body.innerText.length, rect: a.getBoundingClientRect().toJSON(), style: getComputedStyle(a).fontFamily}; }\"});",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "probe: Content[] (1 item) = [{type: \"text\", text: \"### Result\\n{\\n  \\\"inner\\\": \\\"\\\",\\n  \\\"content\\\": \\\"Reading resource 01: practical computing notes\\\",\\n  \\\"bodyInner\\\": 0,\\n  \\\"rect\\\": {\u2026\"}]"
+          }
+        ],
+        "isError": false
+      }
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "[{type: \"text\", text: \"### Result\\n{\\n  \\\"inner\\\": \\\"\\\",\\n  \\\"content\\\": \\\"Reading resource 01: practical computing notes\\\",\\n  \\\"bodyInner\\\": 0,\\n  \\\"rect\\\": {\\n    \\\"x\\\": 48,\\n    \\\"y\\\": 21.4375,\\n    \\\"width\\\": 0,\\n    \\\"height\\\": 0,\\n    \\\"top\\\": 21.4375,\\n    \\\"right\\\": 48,\\n    \\\"bottom\\\": 21.4375,\\n    \\\"left\\\": 48\\n  },\\n  \\\"style\\\": \\\"\\\\\\\"Times New Roman\\\\\\\"\\\"\\n}\\n### Ran Playwright code\\n```js\\nawait page.evaluate('() => { const a = document.querySelector(\\\\'a\\\\'); return {inner: a.innerText, content: a.textContent, bodyInner: document.body.innerText.length, rect: a.getBoundingClientRect().toJSON(), style: getComputedStyle(a).fontFamily}; }');\\n```\"}]"
+        }
+      ],
+      "isError": false
+    }
+  ],
+  "withFontconfig": [
+    {
+      "program": "navigation = playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"});",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "navigation: Content[] (1 item) = [{type: \"text\", text: \"### Ran Playwright code\\n```js\\nawait page.goto('http://127.0.0.1/links.html');\\n```\\n### Page\\n- Page URL: http://127.0.0.1/\u2026\"}]"
+          }
+        ],
+        "isError": false
+      }
+    },
+    {
+      "program": "probe = playwright.browser_evaluate({\"function\":\"() => { const a = document.querySelector('a'); return {inner: a.innerText, content: a.textContent, bodyInner: document.body.innerText.length, rect: a.getBoundingClientRect().toJSON(), style: getComputedStyle(a).fontFamily}; }\"});",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "probe: Content[] (1 item) = [{type: \"text\", text: \"### Result\\n{\\n  \\\"inner\\\": \\\"Reading resource 01: practical computing notes\\\",\\n  \\\"content\\\": \\\"Reading resource 01: practical c\u2026\"}]"
+          }
+        ],
+        "isError": false
+      }
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "[{type: \"text\", text: \"### Result\\n{\\n  \\\"inner\\\": \\\"Reading resource 01: practical computing notes\\\",\\n  \\\"content\\\": \\\"Reading resource 01: practical computing notes\\\",\\n  \\\"bodyInner\\\": 24699,\\n  \\\"rect\\\": {\\n    \\\"x\\\": 48,\\n    \\\"y\\\": 203.6875,\\n    \\\"width\\\": 387,\\n    \\\"height\\\": 16,\\n    \\\"top\\\": 203.6875,\\n    \\\"right\\\": 435,\\n    \\\"bottom\\\": 219.6875,\\n    \\\"left\\\": 48\\n  },\\n  \\\"style\\\": \\\"\\\\\\\"Times New Roman\\\\\\\"\\\"\\n}\\n### Ran Playwright code\\n```js\\nawait page.evaluate('() => { const a = document.querySelector(\\\\'a\\\\'); return {inner: a.innerText, content: a.textContent, bodyInner: document.body.innerText.length, rect: a.getBoundingClientRect().toJSON(), style: getComputedStyle(a).fontFamily}; }');\\n```\"}]"
+        }
+      ],
+      "isError": false
+    }
+  ]
+}

@@ -1,0 +1,481 @@
+[
+  {
+    "path": "testing/transcripts/browser-demo/run-1.jsonl",
+    "assistant_turns": 8,
+    "tool_calls": {
+      "help": 2,
+      "run": 3,
+      "show": 2
+    },
+    "error_count": 0,
+    "errors": [],
+    "run_programs": [
+      "playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"});",
+      "playwright.browser_evaluate({function: \"() => { const texts = Array.from(document.querySelectorAll('a[href], area[href], [role=\\\"link\\\"]')).map(a => a.innerText ?? a.textContent ?? '').filter(t => t.includes('Rust')); return {texts, count: texts.length}; }\"});",
+      "playwright.browser_snapshot({});"
+    ],
+    "show_expressions": [
+      "res1",
+      "res3"
+    ],
+    "final_assistant_text": "The link texts containing the case-sensitive substring **\"Rust\"** are:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes\n\n**Total: 7 matching links.**",
+    "reported_usage_sum": {
+      "input": 23528,
+      "output": 285,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 23813,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 541,
+      "show": 35628
+    },
+    "max_single_mcp_result_text_chars": 35213
+  },
+  {
+    "path": "testing/transcripts/browser-demo/run-2.jsonl",
+    "assistant_turns": 8,
+    "tool_calls": {
+      "help": 2,
+      "run": 3,
+      "show": 2
+    },
+    "error_count": 0,
+    "errors": [],
+    "run_programs": [
+      "playwright.browser_navigate({url:\"http://127.0.0.1/links.html\"});",
+      "playwright.browser_evaluate({function:\"() => { const texts = Array.from(document.querySelectorAll('a[href]')).map(a => a.innerText.trim()).filter(t => t.includes('Rust')); return {texts, count: texts.length}; }\"});",
+      "playwright.browser_snapshot({});"
+    ],
+    "show_expressions": [
+      "res1",
+      "res3"
+    ],
+    "final_assistant_text": "The following link texts contain the case-sensitive substring **“Rust”**:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes\n\n**Total: 7 matching links.**",
+    "reported_usage_sum": {
+      "input": 23459,
+      "output": 287,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 17,
+      "totalTokens": 23746,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 541,
+      "show": 35628
+    },
+    "max_single_mcp_result_text_chars": 35213
+  },
+  {
+    "path": "testing/transcripts/browser-demo/run-3.jsonl",
+    "assistant_turns": 9,
+    "tool_calls": {
+      "help": 2,
+      "run": 4,
+      "show": 2
+    },
+    "error_count": 0,
+    "errors": [],
+    "run_programs": [
+      "playwright.browser_navigate({url:\"http://127.0.0.1/links.html\"});",
+      "playwright.browser_evaluate({function:\"() => { const texts = Array.from(document.querySelectorAll('a[href]')).map(a => a.innerText.trim()).filter(t => t.includes('Rust')); return {texts, count: texts.length}; }\"});",
+      "playwright.browser_evaluate({function:\"() => ({body: document.body.innerText, links: Array.from(document.querySelectorAll('a')).map(a => ({text: a.textContent,href:a.getAttribute('href')})),frames:document.querySelectorAll('iframe').length})\"});",
+      "playwright.browser_evaluate({function:\"() => { const texts = [...document.querySelectorAll('a[href]')].map(a => a.textContent.trim()).filter(t => t.includes('Rust')); return {texts, count:texts.length}; }\"});"
+    ],
+    "show_expressions": [
+      "res1",
+      "res3"
+    ],
+    "final_assistant_text": "The link texts containing the case-sensitive substring **“Rust”** are:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes\n\n**Total: 7 matching links.**",
+    "reported_usage_sum": {
+      "input": 25014,
+      "output": 403,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 25417,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 744,
+      "show": 11048
+    },
+    "max_single_mcp_result_text_chars": 10633
+  },
+  {
+    "path": "testing/transcripts/browser-demo/diagnostic-4.jsonl",
+    "assistant_turns": 8,
+    "tool_calls": {
+      "help": 2,
+      "run": 4,
+      "show": 1
+    },
+    "error_count": 1,
+    "errors": [
+      {
+        "tool": "run",
+        "tool_call_id": "call_ddf2df16dcff4ed6ad7ef226c03b7af0",
+        "text": "runtime error: invalid JSON: trailing characters at line 83 column 1\n --> 1:150\n  |\n1 | (raw = playwright.browser_evaluate({function: \"() => Array.from(document.querySelectorAll('a[href]'), a => a.innerText)\"}); body = text(raw); data = parse_json(trim(split(split(body, \"### Result\\n\")[1], \"\\n\\n###\")[0])); matches = filter(data, (s) => contains(s, \"Rust\")); {texts: matches, count: len(matches)});\n  |                                                                                                                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  hint: check the value and retry the expression"
+      }
+    ],
+    "run_programs": [
+      "(nav = playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"}); \"Navigation complete\");",
+      "(raw = playwright.browser_evaluate({function: \"() => Array.from(document.querySelectorAll('a[href]'), a => a.innerText)\"}); body = text(raw); data = parse_json(trim(split(split(body, \"### Result\\n\")[1], \"\\n\\n###\")[0])); matches = filter(data, (s) => contains(s, \"Rust\")); {texts: matches, count: len(matches)});",
+      "(raw2 = playwright.browser_evaluate({function: \"() => Array.from(document.querySelectorAll('a[href]'), a => a.innerText)\"}); body2 = text(raw2); data2 = parse_json(trim(split(split(body2, \"### Result\\n\")[1], \"\\n###\")[0])); matches2 = filter(data2, (s) => contains(s, \"Rust\")); {texts: matches2, count: len(matches2)});",
+      "(raw3 = playwright.browser_evaluate({function: \"() => Array.from(document.querySelectorAll('a'), a => a.textContent)\"}); body3 = text(raw3); data3 = parse_json(trim(split(split(body3, \"### Result\\n\")[1], \"\\n###\")[0])); matches3 = filter(data3, (s) => contains(s, \"Rust\")); {texts: matches3, count: len(matches3)});"
+    ],
+    "show_expressions": [
+      "res3"
+    ],
+    "final_assistant_text": "There are **7** link texts containing the case-sensitive substring **\"Rust\"**:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes",
+    "reported_usage_sum": {
+      "input": 16954,
+      "output": 988,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 476,
+      "totalTokens": 17942,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 979,
+      "show": 187
+    },
+    "max_single_mcp_result_text_chars": 5029
+  },
+  {
+    "path": "testing/transcripts/browser-demo/run-5.jsonl",
+    "assistant_turns": 6,
+    "tool_calls": {
+      "help": 2,
+      "run": 2,
+      "show": 1
+    },
+    "error_count": 0,
+    "errors": [],
+    "run_programs": [
+      "playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"});",
+      "playwright.browser_evaluate({function: \"() => { const texts = Array.from(document.querySelectorAll('a[href]')).map(a => a.innerText).filter(t => t.includes('Rust')); return {texts, count: texts.length}; }\"});"
+    ],
+    "show_expressions": [
+      "res2"
+    ],
+    "final_assistant_text": "The link texts containing the case-sensitive substring **“Rust”** are:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes\n\n**Total: 7 matching links.**",
+    "reported_usage_sum": {
+      "input": 10940,
+      "output": 235,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 11175,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 368,
+      "show": 623
+    },
+    "max_single_mcp_result_text_chars": 5029
+  },
+  {
+    "path": "testing/transcripts/browser-demo/run-6.jsonl",
+    "assistant_turns": 6,
+    "tool_calls": {
+      "help": 2,
+      "run": 2,
+      "show": 1
+    },
+    "error_count": 0,
+    "errors": [],
+    "run_programs": [
+      "playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"});",
+      "playwright.browser_evaluate({function: \"() => { const texts = Array.from(document.querySelectorAll('a[href]'), a => a.innerText).filter(text => text.includes('Rust')); return {texts, count: texts.length}; }\"});"
+    ],
+    "show_expressions": [
+      "res2"
+    ],
+    "final_assistant_text": "The link texts containing the case-sensitive substring **“Rust”** are:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes\n\n**Total: 7 matching links.**",
+    "reported_usage_sum": {
+      "input": 10900,
+      "output": 234,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 11134,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 368,
+      "show": 533
+    },
+    "max_single_mcp_result_text_chars": 5029
+  },
+  {
+    "path": "testing/transcripts/browser-demo/run-7.jsonl",
+    "assistant_turns": 6,
+    "tool_calls": {
+      "help": 2,
+      "run": 2,
+      "show": 1
+    },
+    "error_count": 0,
+    "errors": [],
+    "run_programs": [
+      "playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"});",
+      "playwright.browser_evaluate({function: \"() => { const texts = Array.from(document.querySelectorAll('a[href]')).map(a => a.innerText).filter(t => t.includes('Rust')); return {texts, count: texts.length}; }\"});"
+    ],
+    "show_expressions": [
+      "res2"
+    ],
+    "final_assistant_text": "The link texts containing the case-sensitive substring **\"Rust\"** are:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes\n\n**Total: 7 matching links.**",
+    "reported_usage_sum": {
+      "input": 10940,
+      "output": 235,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 11175,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 368,
+      "show": 623
+    },
+    "max_single_mcp_result_text_chars": 5029
+  },
+  {
+    "path": "testing/transcripts/browser-demo/diagnostic-8.jsonl",
+    "assistant_turns": 6,
+    "tool_calls": {
+      "help": 2,
+      "run": 2,
+      "show": 1
+    },
+    "error_count": 0,
+    "errors": [],
+    "run_programs": [
+      "(nav = playwright.browser_navigate({url: \"http://127.0.0.1/links.html\"}); true); (raw = playwright.browser_evaluate({function: \"() => Array.from(document.querySelectorAll('a[href]'), a => a.innerText)\"}); true);",
+      "matches = (raw = text(playwright.browser_evaluate({function: \"() => Array.from(document.querySelectorAll('a[href]'), a => a.innerText)\"})); result = trim(split(split(raw, \"### Result\")[1], \"###\")[0]); links = parse_json(result); filter(links, (s) => contains(s, \"Rust\"))); count = len(matches);"
+    ],
+    "show_expressions": [
+      "matches"
+    ],
+    "final_assistant_text": "The link texts containing the case-sensitive substring **\"Rust\"** are:\n\n1. Rust ownership guide\n2. Async Rust patterns\n3. Rust on embedded devices\n4. Learning Rust macros\n5. Rust error handling\n6. Web services in Rust\n7. Rust release notes\n\n**Total: 7 matching links.**",
+    "reported_usage_sum": {
+      "input": 9011,
+      "output": 448,
+      "cacheRead": 2048,
+      "cacheWrite": 0,
+      "reasoning": 148,
+      "totalTokens": 11507,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "initial_tool_descriptions": {
+      "run": {
+        "chars": 1473,
+        "utf8_bytes": 1479
+      },
+      "help": {
+        "chars": 377,
+        "utf8_bytes": 377
+      },
+      "show": {
+        "chars": 416,
+        "utf8_bytes": 416
+      }
+    },
+    "initial_tool_description_totals": {
+      "chars": 2266,
+      "utf8_bytes": 2272
+    },
+    "raw_mcp_result_text_chars_by_tool": {
+      "help": 5546,
+      "run": 243,
+      "show": 168
+    },
+    "max_single_mcp_result_text_chars": 5029
+  }
+]
