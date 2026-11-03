@@ -1,0 +1,6 @@
+runtime error: `res3` was evicted (session memory limit); recompute it
+ --> 1:1
+  |
+1 | res3[0];
+  | ^^^^
+  hint: rerun the computation under a new name

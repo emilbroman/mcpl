@@ -1,0 +1,5 @@
+profile = catalog.profile({});
+label = profile.name != null ? upper(profile.name) : "anonymous";
+starts_a = profile.name != null && starts_with(profile.name, "A");
+result = catalog.lookup({});
+description = result.kind == "ok" ? str(result.value) : result.message;

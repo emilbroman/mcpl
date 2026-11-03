@@ -1,0 +1,2 @@
+answer = 42;     // Explicit name answer.
+answer + 1;      // Automatic name res1 in a fresh session.

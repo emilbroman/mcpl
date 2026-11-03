@@ -8,9 +8,12 @@ connection errors. Downstream tool schemas are not exposed as upstream tools.
 
 ## Language specification
 
-[MCPL v0.1 target specification](docs/language.md) (not implemented by the stub).
-The library's [schema-derived types](docs/types.md) are available for the future
-checker/runtime; the upstream MCP tool surface is still the proxy stub.
+[MCPL v0.1 target specification](docs/language.md). The library now provides
+[schema-derived types](docs/types.md) and an implemented
+[parser and type checker](docs/frontend.md), including static name resolution,
+builtin inference, and source diagnostics. These Rust APIs perform preflight
+only: they do not evaluate programs or call tools. The upstream MCP `run` tool
+remains the proxy stub, not a language runtime.
 
 ## Build and test
 

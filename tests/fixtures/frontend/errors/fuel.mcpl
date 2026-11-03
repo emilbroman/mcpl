@@ -1,0 +1,2 @@
+xs = range(100000);
+map(xs, (x) => sum(xs));

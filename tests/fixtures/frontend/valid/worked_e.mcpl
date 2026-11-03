@@ -1,0 +1,4 @@
+(source = "Rust 123"; matches = regex_find_all(source, r"\d+"); {
+  match: matches[0][0],
+  count: len(matches)
+});

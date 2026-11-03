@@ -1,0 +1,1 @@
+playwright.browser_navigate({url: "https://invalid.example"});

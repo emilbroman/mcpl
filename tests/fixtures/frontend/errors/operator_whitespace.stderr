@@ -1,0 +1,6 @@
+syntax error: binary operator '==' requires whitespace on both sides
+ --> 1:2
+  |
+1 | a==b;
+  |  ^^
+  hint: add whitespace on both sides of '=='

@@ -1,0 +1,4 @@
+a = {b: {c: 1}};
+a.b = {c: 2};
+a.b.c;                 // Root a.b, then member c: 2.
+a["b"].c;              // Root a, then exact key b, then c: 1.

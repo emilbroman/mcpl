@@ -1,0 +1,6 @@
+syntax error: unexpected '='
+ --> 1:7
+  |
+1 | x = a = 1; a + 1;
+  |       ^
+  hint: to sequence inside an expression, wrap it in parentheses: (a = 1; a + 1)

@@ -1,0 +1,2 @@
+playwright.browser_navigate({url: "https://e.test"});
+text(playwright.browser_snapshot({}));

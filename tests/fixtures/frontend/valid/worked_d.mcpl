@@ -1,0 +1,4 @@
+good = [10, 20];
+total = sum(good);
+good[9];
+unreachable = 0;

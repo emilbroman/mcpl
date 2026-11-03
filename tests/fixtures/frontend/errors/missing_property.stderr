@@ -1,0 +1,6 @@
+type error: property 'missing' does not exist on {x: number}
+ --> 1:8
+  |
+1 | record.missing;
+  |        ^^^^^^^
+  hint: available field: x
