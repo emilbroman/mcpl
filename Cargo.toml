@@ -1,0 +1,32 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "mcpl"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A typed scripting proxy for Model Context Protocol servers"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = "0.3"
+jsonschema = { version = "=0.60.2", default-features = false }
+rmcp = { version = "=3.8.0", default-features = false, features = ["client", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+
+[profile.dev]
+debug = 1
