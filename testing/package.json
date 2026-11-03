@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Local MCPL experiment using Pi and MCP",
   "scripts": {
+    "postinstall": "node patch-mcp-timeouts.mjs",
     "start": "tsx index.ts",
     "check": "tsc --noEmit",
     "test": "tsx --test *.test.ts"

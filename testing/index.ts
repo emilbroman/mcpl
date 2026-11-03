@@ -12,9 +12,11 @@ export const model = modelConfig as Model<"openai-completions">;
 export const systemPrompt = "You are a helpful assistant completing the user's task.";
 type Emit = (event: Record<string, unknown>) => void;
 
-export function bridgeRun(client: Client, tool: Tool, emit: Emit): AgentTool {
-  if (tool.name !== "run" || typeof tool.description !== "string") {
-    throw new Error("MCPL must advertise run with a description");
+export const toolNames = ["run", "help", "show"] as const;
+
+export function bridgeTool(client: Client, tool: Tool, emit: Emit): AgentTool {
+  if (!toolNames.some((name) => name === tool.name) || typeof tool.description !== "string") {
+    throw new Error("MCPL must advertise run, help and show with descriptions");
   }
   return {
     name: tool.name,
@@ -23,9 +25,9 @@ export function bridgeRun(client: Client, tool: Tool, emit: Emit): AgentTool {
     parameters: tool.inputSchema,
     async execute(_id, args, signal) {
       const result = CallToolResultSchema.parse(await client.callTool(
-        { name: "run", arguments: args as Record<string, unknown> },
+        { name: tool.name, arguments: args as Record<string, unknown> },
         CallToolResultSchema,
-        { signal, timeout: 120_000 },
+        { signal, timeout: 0 },
       ));
       emit({ type: "mcp_result", toolCallId: _id, result });
       return {
@@ -74,17 +76,18 @@ export async function run(options: RunOptions): Promise<void> {
   const abort = () => { agent?.abort(); void client.close(); };
   options.signal?.addEventListener("abort", abort, { once: true });
   try {
-    await client.connect(transport, { timeout: 60_000 });
-    const discovery = await client.listTools({}, { signal: options.signal });
-    if (discovery.nextCursor || discovery.tools.length !== 1 || discovery.tools[0]?.name !== "run") {
-      throw new Error("Expected MCPL to expose exactly one tool: run");
+    await client.connect(transport, { signal: options.signal, timeout: 0 });
+    const discovery = await client.listTools({}, { signal: options.signal, timeout: 0 });
+    if (discovery.nextCursor || discovery.tools.length !== toolNames.length
+      || !toolNames.every((name) => discovery.tools.some((tool) => tool.name === name))) {
+      throw new Error("Expected MCPL to expose exactly run, help and show");
     }
-    const tool = bridgeRun(client, discovery.tools[0], emit);
-    emit({ type: "session", model: (options.model ?? model).id, systemPrompt, tool: discovery.tools[0] });
+    const tools = discovery.tools.map((tool) => bridgeTool(client, tool, emit));
+    emit({ type: "session", model: (options.model ?? model).id, systemPrompt, tools: discovery.tools });
     let turns = 0;
     let limited = false;
     agent = new Agent({
-      initialState: { model: options.model ?? model, systemPrompt, tools: [tool] },
+      initialState: { model: options.model ?? model, systemPrompt, tools },
       streamFn: (selected, context, settings) => streamSimple(
         selected as Model<"openai-completions">, context, { ...settings, maxTokens: 8192 },
       ),

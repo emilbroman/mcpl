@@ -3,9 +3,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { bridgeRun, model, run, systemPrompt } from "./index.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { LATEST_PROTOCOL_VERSION, type JSONRPCMessage, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import { bridgeTool, model, run, systemPrompt } from "./index.js";
 
 const tool: Tool = {
   name: "run",
@@ -19,10 +20,11 @@ const tool: Tool = {
 };
 const binary = fileURLToPath(new URL("../target/debug/mcpl", import.meta.url));
 const config = fileURLToPath(new URL("./empty.json", import.meta.url));
-const program = "inspect downstream tools";
-const finalAnswer = "The MCPL stub returned no downstream servers.";
+const program = "numbers = [1, 2, 3]; total = reduce(numbers, (sum, item) => sum + item, 0);";
+const finalAnswer = "The total is 6, and no downstream servers are configured.";
 
-test("bridgeRun preserves discovery, text blocks, error flag and raw result details", async () => {
+for (const name of ["run", "help", "show"]) test(`bridgeTool preserves ${name} discovery and raw result details`, async () => {
+  const discovered = { ...tool, name };
   const raw = {
     content: [
       { type: "text" as const, text: "First block\n  verbatim" },
@@ -37,38 +39,80 @@ test("bridgeRun preserves discovery, text blocks, error flag and raw result deta
     async callTool(...args: unknown[]) { calls.push(args); return raw; },
   } as unknown as Client;
   const events: Record<string, unknown>[] = [];
-  const bridge = bridgeRun(client, tool, (event) => events.push(event));
-  assert.equal(bridge.name, "run");
+  const bridge = bridgeTool(client, discovered, (event) => events.push(event));
+  assert.equal(bridge.name, name);
   assert.equal(bridge.description, tool.description);
   assert.strictEqual(bridge.parameters, tool.inputSchema);
   const args = { program: "an exact program" };
   const signal = new AbortController().signal;
   const result = await bridge.execute("call-1", args, signal);
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0]?.[0], { name: "run", arguments: args });
-  assert.deepEqual(calls[0]?.[2], { signal, timeout: 120_000 });
+  assert.deepEqual(calls[0]?.[0], { name, arguments: args });
+  assert.deepEqual(calls[0]?.[2], { signal, timeout: 0 });
   assert.deepEqual(result.content, raw.content);
   assert.equal(result.isError, true);
   assert.deepEqual(result.details, raw);
   assert.deepEqual(events, [{ type: "mcp_result", toolCallId: "call-1", result: raw }]);
 });
 
-test("bridgeRun defaults a missing error flag to false", async () => {
+test("bridgeTool defaults a missing error flag to false", async () => {
   const raw = { content: [{ type: "text", text: "ok" }] };
   const client = { async callTool() { return raw; } } as unknown as Client;
-  const result = await bridgeRun(client, tool, () => {}).execute("call-2", {});
+  const result = await bridgeTool(client, tool, () => {}).execute("call-2", {});
   assert.equal(result.isError, false);
   assert.deepEqual(result.details, raw);
 });
 
-test("bridgeRun rejects another tool or a missing description", () => {
+test("bridgeTool rejects another tool or a missing description", () => {
   const client = {} as Client;
   for (const invalid of [
     { ...tool, name: "other" },
     { name: "run", inputSchema: tool.inputSchema },
   ]) {
-    assert.throws(() => bridgeRun(client, invalid, () => {}), /advertise run with a description/);
+    assert.throws(() => bridgeTool(client, invalid, () => {}), /advertise run, help and show with descriptions/);
   }
+});
+
+test("patched SDK leaves initialize/list/call pending without deadlines and permits cancellation", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const [transport, peer] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "no-deadline-test", version: "1" });
+  t.after(() => client.close());
+  const messages: JSONRPCMessage[] = [];
+  peer.onmessage = (message) => { messages.push(message); };
+  await peer.start();
+  const controller = new AbortController();
+  const options = { timeout: 0, signal: controller.signal };
+  const nextTick = () => new Promise<void>((resolve) => setImmediate(resolve));
+  async function assertPending(promise: Promise<unknown>) {
+    let settled = false;
+    void promise.then(() => { settled = true; }, () => { settled = true; });
+    await nextTick();
+    t.mock.timers.tick(1_000_000);
+    await nextTick();
+    assert.equal(settled, false);
+  }
+  async function respond(method: string, result: Record<string, unknown>) {
+    const request = messages.find((message) => "method" in message && message.method === method);
+    assert.ok(request && "id" in request && request.id !== undefined);
+    await peer.send({ jsonrpc: "2.0", id: request.id, result });
+  }
+  const connection = client.connect(transport, options);
+  await assertPending(connection);
+  await respond("initialize", {
+    protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: { tools: {} },
+    serverInfo: { name: "test", version: "1" },
+  });
+  await connection;
+  const discovery = client.listTools({}, options);
+  await assertPending(discovery);
+  await respond("tools/list", { tools: [tool] });
+  await discovery;
+  const call = bridgeTool(client, tool, () => {}).execute("pending", { program }, controller.signal);
+  await assertPending(call);
+  controller.abort(new Error("manual cancellation"));
+  await assert.rejects(call, /manual cancellation/);
+  assert.ok(messages.some((message) => "method" in message && message.method === "notifications/cancelled"));
 });
 
 interface CompletionRequest {
@@ -103,9 +147,14 @@ async function fakeModel(t: TestContext, mode: "complete" | "error" | "loop" = "
       };
       send({ role: "assistant", content: "" });
       if (toolTurn) {
-        send({ tool_calls: [{ index: 0, id: "call_mcpl", type: "function", function: {
-          name: "run", arguments: JSON.stringify({ program }),
-        } }] });
+        send({ tool_calls: [
+          { name: "help", args: {} },
+          { name: "run", args: { program } },
+          { name: "show", args: { expression: "total" } },
+        ].map(({ name, args }, index) => ({
+          index, id: `call_${name}`, type: "function",
+          function: { name, arguments: JSON.stringify(args) },
+        })) });
       } else {
         send({ content: finalAnswer });
       }
@@ -124,59 +173,65 @@ async function fakeModel(t: TestContext, mode: "complete" | "error" | "loop" = "
   return { requests, baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1` };
 }
 
-test("real MCPL run reaches Pi and the transcript without added language instructions", { timeout: 20_000 }, async (t) => {
+test("real MCPL run/help/show reach Pi verbatim and execute sequentially in one session", { timeout: 20_000 }, async (t) => {
   const { requests, baseUrl } = await fakeModel(t);
   const events: Record<string, unknown>[] = [];
   await run({
-    binary, config, prompt: "Inspect downstream tools", apiKey: "test",
+    binary, config, prompt: "Inspect downstream tools and sum three numbers", apiKey: "test",
     model: { ...model, baseUrl }, signal: AbortSignal.timeout(15_000),
     emit: (event) => events.push(event),
   });
   assert.equal(requests.length, 2);
   const session = events.find((event) => event.type === "session");
   assert.ok(session);
-  const discovered = session.tool as Tool;
-  assert.equal(discovered.name, "run");
-  assert.ok(discovered.description);
+  const discovered = session.tools as Tool[];
+  assert.deepEqual(discovered.map((tool) => tool.name).sort(), ["help", "run", "show"]);
   assert.equal(systemPrompt, "You are a helpful assistant completing the user's task.");
   assert.equal(session.systemPrompt, systemPrompt);
   for (const request of requests) {
     assert.equal(request.model, model.id);
-    assert.equal(request.tools.length, 1);
-    assert.equal(request.tools[0]?.type, "function");
-    assert.equal(request.tools[0]?.function.name, "run");
-    assert.equal(request.tools[0]?.function.description, discovered.description);
-    assert.deepEqual(request.tools[0]?.function.parameters, discovered.inputSchema);
+    assert.equal(request.tools.length, 3);
+    assert.deepEqual(request.tools, discovered.map((tool) => ({
+      type: "function",
+      function: { name: tool.name, description: tool.description, parameters: tool.inputSchema },
+    })));
     assert.deepEqual(request.messages.filter((message) => ["system", "developer"].includes(message.role)), [
       { role: "system", content: systemPrompt },
     ]);
   }
   assert.deepEqual(requests[0]?.messages, [
     { role: "system", content: systemPrompt },
-    { role: "user", content: [{ type: "text", text: "Inspect downstream tools" }] },
+    { role: "user", content: [{ type: "text", text: "Inspect downstream tools and sum three numbers" }] },
   ]);
-  assert.deepEqual(events.find((event) => event.type === "tool_call"), {
-    type: "tool_call", toolCallId: "call_mcpl", name: "run", arguments: { program },
+  assert.deepEqual(events.filter((event) => event.type === "tool_call"), [
+    { type: "tool_call", toolCallId: "call_help", name: "help", arguments: {} },
+    { type: "tool_call", toolCallId: "call_run", name: "run", arguments: { program } },
+    { type: "tool_call", toolCallId: "call_show", name: "show", arguments: { expression: "total" } },
+  ]);
+  assert.deepEqual(events.filter((event) => ["tool_call", "tool_result"].includes(event.type as string))
+    .map((event) => [event.type, event.toolCallId]), [
+    ["tool_call", "call_help"], ["tool_result", "call_help"],
+    ["tool_call", "call_run"], ["tool_result", "call_run"],
+    ["tool_call", "call_show"], ["tool_result", "call_show"],
+  ]);
+  const rawEvents = events.filter((event) => event.type === "mcp_result");
+  assert.equal(rawEvents.length, 3);
+  const texts = rawEvents.map((rawEvent) => {
+    const raw = rawEvent.result as { content: { type: string; text: string }[]; isError?: boolean };
+    assert.notEqual(raw.isError, true, JSON.stringify(raw));
+    const resultEvent = events.find((event) => event.type === "tool_result" && event.toolCallId === rawEvent.toolCallId);
+    assert.ok(resultEvent);
+    assert.deepEqual((resultEvent.result as { details: unknown }).details, raw);
+    const text = raw.content.map((block) => block.text).join("\n");
+    const toolMessage = requests[1]?.messages.find((message) => message.role === "tool" && message.tool_call_id === rawEvent.toolCallId);
+    assert.ok(toolMessage);
+    assert.equal(toolMessage.content, text);
+    return text;
   });
-  const rawEvent = events.find((event) => event.type === "mcp_result");
-  assert.ok(rawEvent);
-  assert.equal(rawEvent.toolCallId, "call_mcpl");
-  const raw = rawEvent.result as { content: { type: string; text: string }[]; structuredContent: unknown };
-  const stub = {
-    stub: true,
-    message: "Program not executed; MCPL language support is not implemented yet.",
-    servers: [],
-  };
-  assert.deepEqual(raw.structuredContent, stub);
-  assert.deepEqual(JSON.parse(raw.content.map((block) => block.text).join("\n")), stub);
-  const resultEvent = events.find((event) => event.type === "tool_result");
-  assert.ok(resultEvent);
-  assert.deepEqual((resultEvent.result as { details: unknown }).details, raw);
-  const toolMessage = requests[1]?.messages.find((message) => message.role === "tool");
-  assert.ok(toolMessage);
-  assert.equal(toolMessage.tool_call_id, "call_mcpl");
-  assert.equal(typeof toolMessage.content, "string");
-  assert.deepEqual(JSON.parse(toolMessage.content as string), stub);
+  assert.match(texts[0]!, /Servers\n  \(none configured\)/);
+  assert.match(texts[1]!, /numbers:/);
+  assert.match(texts[1]!, /total:.* = 6/);
+  assert.equal(texts[2], "6");
   const messages = events.filter((event) => event.type === "message").map((event) => event.message);
   assert.ok(messages.some((message) => JSON.stringify(message).includes('"toolCall"')));
   assert.ok(messages.some((message) => JSON.stringify(message).includes(finalAnswer)));

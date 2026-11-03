@@ -1,7 +1,6 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    process::Stdio,
-    time::Duration,
 };
 
 use anyhow::{Context, bail};
@@ -10,14 +9,16 @@ use rmcp::{
     RoleClient, ServiceExt,
     model::{CallToolRequestParams, CallToolResult, PaginatedRequestParams, Tool},
     service::{RunningService, ServiceError},
-    transport::{StreamableHttpClientTransport, TokioChildProcess},
+    transport::StreamableHttpClientTransport,
 };
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::config::{Config, ServerConfig};
+use crate::{
+    config::{Config, ServerConfig},
+    transport::ChildTransport,
+};
 
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_DISCOVERY_PAGES: usize = 100;
 const MAX_DISCOVERED_TOOLS: usize = 10_000;
 
@@ -85,8 +86,6 @@ pub enum CallError {
     Unavailable(String),
     #[error("downstream protocol/transport error: {0}")]
     Protocol(#[from] ServiceError),
-    #[error("downstream call timed out")]
-    Timeout,
     #[error("invalid tool arguments: {0}")]
     InvalidArguments(String),
     #[error("unsupported or invalid tool schema: {0}")]
@@ -101,26 +100,25 @@ pub enum CallError {
 }
 
 impl Registry {
-    pub async fn connect(config: Config, timeout: Duration) -> Self {
+    pub async fn connect(config: Config) -> Self {
         let entries = join_all(
             config
                 .mcp_servers
                 .into_iter()
                 .map(|(name, config)| async move {
-                    let result = tokio::time::timeout(timeout, async {
+                    let result = async {
                         let client = connect_server(config).await?;
                         let tools = discover(&client).await?;
                         Ok::<_, anyhow::Error>((client, tools))
-                    })
+                    }
                     .await;
                     let downstream = match result {
-                        Ok(Ok((client, tools))) => Downstream {
+                        Ok((client, tools)) => Downstream {
                             client: Some(client),
                             tools,
                             error: None,
                         },
-                        Ok(Err(error)) => failed(&name, format!("{error:#}")),
-                        Err(_) => failed(&name, "connection or tool discovery timed out".into()),
+                        Err(error) => failed(&name, format!("{error:#}")),
                     };
                     (name, downstream)
                 }),
@@ -132,15 +130,14 @@ impl Registry {
     }
 
     /// Register an already-connected client, including an in-process transport.
-    pub async fn insert_client(&mut self, name: String, client: Client, timeout: Duration) {
-        let downstream = match tokio::time::timeout(timeout, discover(&client)).await {
-            Ok(Ok(tools)) => Downstream {
+    pub async fn insert_client(&mut self, name: String, client: Client) {
+        let downstream = match discover(&client).await {
+            Ok(tools) => Downstream {
                 client: Some(client),
                 tools,
                 error: None,
             },
-            Ok(Err(error)) => failed(&name, format!("{error:#}")),
-            Err(_) => failed(&name, "tool discovery timed out".into()),
+            Err(error) => failed(&name, format!("{error:#}")),
         };
         self.servers.insert(name, downstream);
     }
@@ -172,13 +169,11 @@ impl Registry {
             .collect()
     }
 
-    pub async fn call_tool(
+    fn available_tool(
         &self,
         server: &str,
         tool: &str,
-        arguments: Value,
-        timeout: Duration,
-    ) -> Result<CallToolResult, CallError> {
+    ) -> Result<(&Client, &ToolDefinition), CallError> {
         let downstream = self
             .servers
             .get(server)
@@ -202,39 +197,89 @@ impl Registry {
                 server: server.into(),
                 tool: tool.into(),
             })?;
-        let validator = jsonschema::validator_for(&definition.input_schema)
+        Ok((client, definition))
+    }
+
+    pub fn has_output_schema(&self, server: &str, tool: &str) -> bool {
+        self.servers
+            .get(server)
+            .and_then(|downstream| downstream.tools.get(tool))
+            .is_some_and(|definition| definition.output_schema.is_some())
+    }
+
+    pub fn validate_arguments(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: &Value,
+    ) -> Result<(), CallError> {
+        let (_, definition) = self.available_tool(server, tool)?;
+        let validator = jsonschema::options()
+            .should_validate_formats(true)
+            .build(&definition.input_schema)
             .map_err(|error| CallError::InvalidSchema(error.to_string()))?;
         validator
-            .validate(&arguments)
+            .validate(arguments)
             .map_err(|error| CallError::InvalidArguments(error.to_string()))?;
+        if !arguments.is_object() {
+            return Err(CallError::InvalidArguments("expected an object".into()));
+        }
+        Ok(())
+    }
+
+    pub async fn call_tool(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<CallToolResult, CallError> {
+        self.validate_arguments(server, tool, &arguments)?;
+        let (client, definition) = self.available_tool(server, tool)?;
         let arguments = arguments
             .as_object()
             .cloned()
             .ok_or_else(|| CallError::InvalidArguments("expected an object".into()))?;
-        let result = tokio::time::timeout(
-            timeout,
-            client.call_tool(CallToolRequestParams::new(tool.to_owned()).with_arguments(arguments)),
-        )
-        .await
-        .map_err(|_| CallError::Timeout)??;
+        let mut result = client
+            .call_tool(CallToolRequestParams::new(tool.to_owned()).with_arguments(arguments))
+            .await?;
         if result.is_error == Some(true) {
             return Err(CallError::ToolReported(Box::new(result)));
         }
         if let Some(schema) = &definition.output_schema {
-            let validator = jsonschema::validator_for(schema)
+            let validator = jsonschema::options()
+                .should_validate_formats(true)
+                .build(schema)
                 .map_err(|error| CallError::InvalidSchema(error.to_string()))?;
-            let error = match &result.structured_content {
-                Some(value) => validator
-                    .validate(value)
-                    .err()
-                    .map(|error| error.to_string()),
-                None => Some("outputSchema is declared but structuredContent is absent".into()),
+            let selected = match &result.structured_content {
+                Some(value) => Ok(Cow::Borrowed(value)),
+                None => {
+                    let mut texts = result.content.iter().filter_map(|block| block.as_text());
+                    match (texts.next(), texts.next()) {
+                        (Some(text), None) => serde_json::from_str(&text.text)
+                            .map(Cow::Owned)
+                            .map_err(|error| format!("text output is not valid JSON: {error}")),
+                        _ => Err(
+                            "outputSchema requires structuredContent or exactly one text block"
+                                .into(),
+                        ),
+                    }
+                }
             };
-            if let Some(message) = error {
-                return Err(CallError::InvalidResult {
-                    message,
-                    result: Box::new(result),
-                });
+            let selected = selected.and_then(|value| {
+                validator
+                    .validate(&value)
+                    .map_err(|error| error.to_string())?;
+                Ok(value)
+            });
+            match selected {
+                Ok(Cow::Owned(value)) => result.structured_content = Some(value),
+                Ok(Cow::Borrowed(_)) => {}
+                Err(message) => {
+                    return Err(CallError::InvalidResult {
+                        message,
+                        result: Box::new(result),
+                    });
+                }
             }
         }
         Ok(result)
@@ -246,7 +291,7 @@ impl Registry {
                 .values_mut()
                 .filter_map(|server| server.client.take())
                 .map(|mut client| async move {
-                    if let Err(error) = client.close_with_timeout(Duration::from_secs(5)).await {
+                    if let Err(error) = client.close().await {
                         tracing::warn!(%error, "downstream shutdown failed");
                     }
                 }),
@@ -269,9 +314,7 @@ async fn connect_server(config: ServerConfig) -> anyhow::Result<Client> {
         ServerConfig::Stdio { command, args, env } => {
             let mut process = tokio::process::Command::new(&command);
             process.args(args).envs(env);
-            let (transport, _) = TokioChildProcess::builder(process)
-                .stderr(Stdio::inherit())
-                .spawn()
+            let transport = ChildTransport::spawn(process)
                 .with_context(|| format!("could not spawn {command:?}"))?;
             ().serve(transport).await.context("MCP handshake failed")
         }
