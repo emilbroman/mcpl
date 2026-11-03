@@ -103,6 +103,13 @@ cargo run --locked --example inspect -- ./target/debug/mcpl ./examples/playwrigh
 Discovery does not launch a browser. Actually invoking browser tools in a future
 language runtime requires Playwright's browser dependencies as usual.
 
+### Try an agent loop
+
+The experimental [Pi test rig](testing/README.md) connects a model through
+LiteLLM to this binary over MCP, exposes only `run` using its discovered
+description, and prints a reviewable transcript. It lives under `testing/` and
+requires Node.js 22.19+ plus a model API key supplied through the environment.
+
 ## Behaviour and extension points
 
 - Downstreams connect concurrently, with a 30-second deadline per server covering
