@@ -1,0 +1,25 @@
+{
+  "name": "mcpl-testing",
+  "version": "0.1.0",
+  "description": "Local MCPL experiment using Pi and MCP",
+  "scripts": {
+    "start": "tsx index.ts",
+    "check": "tsc --noEmit",
+    "test": "tsx --test *.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@modelcontextprotocol/sdk": "1.32.2"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

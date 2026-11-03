@@ -1,0 +1,18 @@
+{
+  "id": "chatgpt/gpt-6.1-sol",
+  "name": "GPT-6.1 Sol via LiteLLM",
+  "api": "openai-completions",
+  "provider": "litellm",
+  "baseUrl": "https://litellm.bb3.internal/v1",
+  "reasoning": false,
+  "input": ["text"],
+  "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+  "contextWindow": 128000,
+  "maxTokens": 8192,
+  "compat": {
+    "supportsStore": false,
+    "supportsDeveloperRole": false,
+    "supportsReasoningEffort": false,
+    "maxTokensField": "max_tokens"
+  }
+}
