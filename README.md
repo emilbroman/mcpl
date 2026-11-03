@@ -6,6 +6,10 @@ not the language. Its single `run` tool accepts a `program` string but does not
 execute it: it returns discovered server names, tool names, availability and
 connection errors. Downstream tool schemas are not exposed as upstream tools.
 
+## Language specification
+
+[MCPL v0.1 target specification](docs/language.md) (not implemented by the stub).
+
 ## Build and test
 
 Requires Rust 1.88+ and a native C toolchain. Node.js/npm are only needed for the
