@@ -1,0 +1,7 @@
+xs: number[] (100000 items) = [0, 1, 2, 3, 4, …+99995]
+limit exceeded: evaluation budget exhausted (10,000,000 units), statement 2
+ --> 2:1
+  |
+2 | map(xs, (x) => sum(xs));
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  hint: reduce the data size or split the program

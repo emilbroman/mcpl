@@ -1,0 +1,6 @@
+type error: res2 is already defined
+ --> 1:1
+  |
+1 | res2 = 32;
+  | ^^^^
+  hint: choose a new name; session bindings cannot be reassigned

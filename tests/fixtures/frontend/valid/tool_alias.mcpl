@@ -1,0 +1,2 @@
+nav = playwright.browser_navigate;
+nav({url: "https://example.com"});

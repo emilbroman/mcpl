@@ -1,0 +1,6 @@
+syntax error: expected ';' after statement
+ --> 1:6
+  |
+1 | x = 1
+  |      ^
+  hint: every statement must end with ';'

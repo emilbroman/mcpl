@@ -1,0 +1,7 @@
+map(res4, (link) => (
+  playwright.browser_navigate({url: link[0]});
+  (snap = text(playwright.browser_snapshot({})); {
+    url: link[0],
+    title: regex_find_all(snap, r"Page title: ([^\n]+)")[0][1]
+  })
+));

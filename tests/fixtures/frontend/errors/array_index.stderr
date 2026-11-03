@@ -1,0 +1,6 @@
+runtime error: array index 4 out of range for length 2
+ --> 1:1
+  |
+1 | [10, 20][4];
+  | ^^^^^^^^^^^
+  hint: valid indexes are 0 through 1

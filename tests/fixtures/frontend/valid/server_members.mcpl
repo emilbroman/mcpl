@@ -1,0 +1,5 @@
+s.x;                   // The x tool, a function value.
+s.x.y;                 // The x.y tool, not a member of the x function.
+s["x.y"];              // The same x.y tool.
+s["2fa-check"];        // Also reachable even though not a symbol root.
+s.2fa-check({});       // A member segment may start with a digit.

@@ -1,0 +1,12 @@
+regex_find_all(res2, r"https://e[.]test/[a-z]");
+slice(res3, 0, 5);
+map(res4, (link) => (
+  playwright.browser_navigate({url: link[0]});
+  {
+    url: link[0],
+    title: regex_find_all(
+      text(playwright.browser_snapshot({})),
+      r"Page title: ([^\n]+)"
+    )[0][1]
+  }
+));

@@ -1,0 +1,6 @@
+// Given user: {name?: string}:
+user.name != null ? upper(user.name) : "anonymous";
+user.name != null && starts_with(user.name, "A");
+
+// Given result: {kind: "ok", value: number} | {kind: "error", message: string}:
+result.kind == "ok" ? str(result.value) : result.message;

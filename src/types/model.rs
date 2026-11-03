@@ -16,6 +16,7 @@ pub enum Type {
     Union(Vec<Type>),
     Function(FunctionType),
     Tool(ToolType),
+    Builtin(BuiltinType),
     Server(Vec<(String, Type)>),
     Named(String),
 }
@@ -58,6 +59,12 @@ pub struct Parameter {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct BuiltinType {
+    pub name: String,
+    pub signature: FunctionType,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct ToolType {
     pub server: String,
     pub name: String,
@@ -71,7 +78,7 @@ impl Type {
 
     fn precedence(&self) -> u8 {
         match self {
-            Self::Function(_) | Self::Tool(_) => 0,
+            Self::Function(_) | Self::Tool(_) | Self::Builtin(_) => 0,
             Self::Union(_) => 1,
             Self::Array(_) => 2,
             _ => 3,
@@ -150,6 +157,7 @@ impl Type {
             }
             Self::Function(signature) => write!(f, "{signature}")?,
             Self::Tool(tool) => write!(f, "{}", tool.signature)?,
+            Self::Builtin(builtin) => write!(f, "{}", builtin.signature)?,
             Self::Server(tools) => {
                 f.write_str("{")?;
                 for (index, (name, ty)) in tools.iter().enumerate() {

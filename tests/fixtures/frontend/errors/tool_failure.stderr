@@ -1,0 +1,6 @@
+runtime error: playwright.browser_navigate: net::ERR_NAME_NOT_RESOLVED
+ --> 1:1
+  |
+1 | playwright.browser_navigate({url: "https://invalid.example"});
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  hint: inspect the URL and retry the call as a separate program

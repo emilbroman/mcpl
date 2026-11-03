@@ -1,0 +1,6 @@
+type error: argument field 'url': expected string, found number
+ --> 1:35
+  |
+1 | playwright.browser_navigate({url: 123});
+  |                                   ^^^
+  hint: use a URL string, for example "https://example.com"

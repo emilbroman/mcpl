@@ -1,0 +1,6 @@
+type error: unknown name 'playwrigt'
+ --> 1:1
+  |
+1 | playwrigt;
+  | ^^^^^^^^^
+  hint: did you mean 'playwright'?

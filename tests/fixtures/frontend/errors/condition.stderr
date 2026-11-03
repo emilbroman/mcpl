@@ -1,0 +1,6 @@
+type error: conditional requires boolean, found number
+ --> 1:1
+  |
+1 | 1 ? "yes" : "no";
+  | ^
+  hint: compare explicitly; MCPL has no truthiness

@@ -1,0 +1,3 @@
+a-b;          // One symbol lookup.
+a - b;        // Subtraction.
+a == b;       // Equality.
