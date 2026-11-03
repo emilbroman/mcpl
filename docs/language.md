@@ -2,8 +2,10 @@
 
 This is the target language contract, not a claim that the current proxy stub
 implements it. The design authority is the MCPL language-design interview,
-rounds 1–7 (project ticket #1). Later decisions supersede earlier ones: prefix
+rounds 1–8 (project ticket #1). Later decisions supersede earlier ones: prefix
 unary minus is supported, and `help` and `show` are MCP tools, not builtins.
+Round 8 adds raw strings and `;` sequencing with locals, permits lexical
+shadowing, and guarantees termination through fuel rather than by construction.
 
 Details not settled by that interview are explicitly labelled
 **(implementation-defined; proposed: …)**. These proposals make examples and
@@ -18,8 +20,9 @@ sending intermediate data through an LLM. Types come from downstream discovery
 and JSON Schema. Discovery and progressive disclosure replace wholesale schema
 and result dumps. MCPL has no loops, recursive declarations, filesystem, shell,
 network primitives, or I/O other than downstream tool calls. Iteration is through
-bounded collection builtins. The language is intended to be total: evaluation
-finishes or fails, subject to waiting for external tools, not necessarily succeeds.
+bounded collection builtins. Termination is guaranteed by the fuel budget, not
+by construction: evaluation finishes or fails, subject to unbounded waiting for
+external tools. Calling `any` values, including self-application, is legal.
 It is not JavaScript, TypeScript, an OS sandbox, or an MCP resources/prompts proxy.
 
 The runtime is an MCP server exposing exactly `run`, `help`, and `show`. A registry
@@ -29,7 +32,7 @@ registry can be shared, but each MCP connection has its own `SessionState`:
 bindings, reserved names, automatic-name counter, and memory accounting. Names
 are case-sensitive and tools are not flattened into a global namespace.
 
-Each semicolon-terminated statement creates one immutable session binding.
+Each top-level semicolon-terminated statement creates one immutable session binding.
 Explicit assignments choose its name; expression statements receive `resN`.
 These names are the handles: subsequent programs can refer to them directly.
 `run` returns small typed previews, `help` discovers signatures and documentation,
@@ -40,15 +43,21 @@ survive failures in later statements and later runs, until eviction or disconnec
 
 - Write `name = expression;` or `expression;`. Always terminate statements with `;`.
 - Use JSON values, optionally bare object keys and trailing commas. Strings use
-  double quotes and JSON escapes. There is no `let` or statement block.
+  double quotes and JSON escapes; raw strings `r"..."` take no escapes. Use raw
+  strings for regex patterns. There is no `let` or statement block.
 - Call `server.tool({key: value})`; use `help` first to discover the signature.
 - Read `x.field`, `x["field"]`, or `xs[0]`. Dotted/hyphenated names are preserved.
 - Put whitespace on both sides of every **binary** operator. `a-b` is a name;
   `a - b` is subtraction. Unary `-x` and `!flag` need no separating whitespace.
 - Use `c ? yes : no` and `map(xs, (x) => expression)`. No loops or method-style
   collection operations. Conditions are booleans, not truthy values.
-- Every statement has an output binding, including tool calls and assignments.
-  Names can never be reassigned, even after eviction.
+- Every top-level statement has an output binding, including tool calls and
+  assignments. Session names can never be reassigned, even after eviction.
+- Inside parentheses, array elements, object values, or call arguments, sequence
+  with `;`: `(x = f(); g(x))`. Only the final expression supplies the value;
+  locals never create session bindings or output. Evaluation is left-to-right.
+- Lambda parameters and sequence locals may shadow any visible name. A name
+  may be defined only once per scope; the innermost scope wins.
 - A syntax/type error executes nothing. A runtime failure stops at that statement,
   keeping earlier bindings. Tool side effects are not rolled back.
 - Use the separate MCP tools `help` for documentation and `show` for more output.
@@ -63,14 +72,17 @@ Run an MCPL program. MCPL is a small statically typed scripting language for cal
 
 A program is a sequence of statements, each ending in `;`: either `name = expression;` or `expression;`. Every statement creates a binding that persists for this session; unnamed ones are called res1, res2, …. The result lists each new binding as `name: type (size) = truncated preview`. Later programs refer to bindings by name to drill in (`res1[0].title;`). A name can never be reassigned.
 
-Values are JSON (keys may be unquoted, trailing commas allowed). Call a tool as `server.tool({...args})`. Fields: `x.key` or `x["key"]`; items: `x[i]`. Lambdas: `(x) => expr`. Operators `+ - * / == != < <= > >= && || !` must have spaces around them (names may contain `-`); `c ? a : b`; `+` also joins strings. Conditions must be boolean; there are no implicit conversions and no loops — iterate with built-ins like map, filter, reduce. Any error (bad index, failed tool call, exceeded limit) stops the program; earlier bindings are kept.
+Values are JSON (keys may be unquoted, trailing commas allowed); raw strings `r"..."` take no escapes — use them for regexes. Call a tool as `server.tool({...args})`; tools without an output schema return `Content[]`, and `text(x)` gives their text. Fields: `x.key` or `x["key"]`; items: `x[i]`. Lambdas: `(x) => expr`. Inside parentheses or other brackets, `;` sequences expressions and `name = expr;` makes a local: `(x = f(); g(x))`. Operators `+ - * / == != < <= > >= && || !` must have spaces around them (names may contain `-`); `c ? a : b`; `+` also joins strings. Conditions must be boolean; there are no implicit conversions and no loops — iterate with built-ins like map, filter, reduce. Any error (bad index, failed tool call, exceeded limit) stops the program; earlier bindings are kept.
 
 Use `help` to list servers, tools, signatures and built-ins, and `show` to read a value in full.
 ```
 
 The description is deliberately short, not the grammar. Its spaces rule applies
 to binary operators; unary `!` and `-` follow section 3. `{...args}` in that prose
-is a schematic placeholder for object fields, **not spread syntax**. JSON describes
+is a schematic placeholder for object fields, **not spread syntax**. “Other
+brackets” permits sequences in array elements, object values, and call arguments,
+not directly in index expressions (section 4). The description's statement and
+persistent-name rules concern session bindings, not lexical locals. JSON describes
 the data model, not the first-class function/server/tool values of section 7.
 
 ## 3. Lexical structure
@@ -81,15 +93,21 @@ A symbol has the shape `part ('.' part)*`, where `part = [A-Za-z0-9_-]+`.
 The first part cannot begin with a digit or `-`; it starts with `[A-Za-z_]`.
 Later parts can start with either. There are no leading, trailing, or consecutive
 periods. The full symbol is 1–128 ASCII characters, matching the adopted MCP
-name-length limit. `true`, `false`, and `null` are reserved literals, not symbols.
+name-length limit. `true`, `false`, and `null` are reserved literals and cannot
+be root parts, but are legal member segments. Thus `s.2fa-check({})` and `x.true`
+are legal, while `2fa-check = s.2fa-check;` is a syntax error with
+`hint: choose a name starting with a letter or '_'`.
 
 ```text
 Valid symbols:   x  _tmp  browser-navigate  a.b  a.2b  a.-b
 Not symbols:     2fa-check  -x  .a  a.  a..b  true
 ```
 
-A tool name not usable as a symbol remains accessible through an exact string
-index: `server["2fa-check"]`, `server["tool..name"]`, `server["true"]`.
+Every tool name remains accessible through an exact string index:
+`server["2fa-check"]`, `server["tool..name"]`, `server["true"]`. Leading-digit,
+leading-dash, and reserved member names also work after a valid root:
+`server.2fa-check`, `server.-tool`, `server.true`. Only names violating the
+member spelling rules, such as `tool..name`, require index syntax.
 No tool is renamed. A server's configured name is the global root name.
 Configuration with an unspellable or colliding global server name needs a policy
 **(implementation-defined; proposed: reject it at language-environment setup with
@@ -122,7 +140,7 @@ a type error before evaluation)**.
 
 ### Strings
 
-Strings are double-quoted JSON strings. Escapes are exactly:
+Normal strings are double-quoted JSON strings. Escapes are exactly:
 
 ```text
 \"  \\  \/  \b  \f  \n  \r  \t  \uXXXX
@@ -135,6 +153,16 @@ Unicode scalar. Unpaired surrogate escapes cannot represent a scalar
 **(implementation-defined; proposed: syntax error, with a hint to supply a pair)**.
 JSON interchange with otherwise valid lone-surrogate strings is therefore an
 explicit compatibility boundary.
+
+Raw strings have the form `r"..."`, perform **no escape processing**, and end at
+the next `"`. They may span lines but cannot contain a quote; use a normal
+string when a quote is needed. Both forms have type `string`. An `r` immediately
+followed by `"` begins a raw string, never a symbol.
+
+**Use raw strings for regex patterns:** `r"\bRust\b"` preserves word-boundary
+escapes and `r"\d+"` preserves the digit-class escape. In a normal string,
+`"\bRust\b"` contains backspaces, not regex word boundaries, and `"\d"` is a
+syntax error because `\d` is not a JSON escape.
 
 ### Whitespace, comments, and operators
 
@@ -173,6 +201,8 @@ Statement     <- Assignment / Expression S ';'
 Assignment    <- &(Symbol S Assign) Symbol S Assign S Expression S ';'
 Assign        <- '=' ![=>]
 
+Sequence      <- (SeqItem S ';' S)* Expression
+SeqItem       <- &(Symbol S Assign) Symbol S Assign S Expression / Expression
 Expression    <- Lambda / Conditional
 Lambda        <- '(' S Parameters? S ')' S '=>' S Expression
 Parameters    <- Symbol (S ',' S Symbol)*
@@ -186,24 +216,25 @@ Product       <- Unary (BMul Unary)*
 Unary         <- ('!' / '-') S Unary / Postfix
 Postfix       <- Primary (Call / Index / Member)*
 Call          <- S '(' S Arguments? S ')'
-Arguments     <- Expression (S ',' S Expression)*
+Arguments     <- Sequence (S ',' S Sequence)*
 Index         <- S '[' S Expression S ']'
 Member        <- '.' Part ('.' Part)*
-Primary       <- Null / Boolean / UnsignedNumber / String / Object / Array
-               / Symbol / '(' S Expression S ')'
+Primary       <- Null / Boolean / UnsignedNumber / RawString / String / Object / Array
+               / Symbol / '(' S Sequence S ')'
 
 Object        <- '{' S (Pair (S ',' S Pair)* (S ',')?)? S '}'
-Pair          <- (String / Symbol) S ':' S Expression
-Array         <- '[' S (Expression (S ',' S Expression)* (S ',')?)? S ']'
+Pair          <- (String / Symbol) S ':' S Sequence
+Array         <- '[' S (Sequence (S ',' S Sequence)* (S ',')?)? S ']'
 Null          <- 'null' !NameChar
 Boolean       <- ('true' / 'false') !NameChar
 Symbol        <- !Reserved FirstPart ('.' Part)*
-Reserved      <- ('true' / 'false' / 'null') !NameChar
+Reserved      <- ('true' / 'false' / 'null') ![A-Za-z0-9_-]
 FirstPart     <- [A-Za-z_] [A-Za-z0-9_-]*
 Part          <- [A-Za-z0-9_-]+
 NameChar      <- [A-Za-z0-9_.-]
 UnsignedNumber <- ('0' / [1-9] [0-9]*) ('.' [0-9]+)?
                   ([eE] [+-]? [0-9]+)? ![A-Za-z0-9_-]
+RawString     <- 'r' '"' (!'"' .)* '"'
 String        <- '"' (Escape / StringScalar)* '"'
 Escape        <- '\\' (["\\/bfnrt] / 'u' Hex Hex Hex Hex)
 Hex           <- [0-9A-Fa-f]
@@ -239,11 +270,22 @@ The optional trailing comma applies to arrays and objects. Trailing commas in
 calls and parameter lists were not decided **(implementation-defined; proposed:
 reject them, as this grammar does)**. Empty programs and zero-parameter lambdas
 are likewise **(implementation-defined; proposed: accept both; an empty program
-creates no bindings)**. Duplicate parameter names are a type error
-**(implementation-defined; proposed)**. Destructuring and parameter defaults do
-not exist.
+creates no bindings)**. Duplicate parameter names are a type error:
+`(x, x) => x` reports `x is already defined in this scope`. Destructuring and
+parameter defaults do not exist.
 
-Precedence, from tightest to loosest:
+`Sequence` is admitted **only directly inside brackets**: a parenthesized
+primary, an array element, an object pair value, or a call argument. Each is
+delimited by a comma or closing bracket. Lambda bodies, ternary branches, index
+expressions, and top-level statements remain `Expression`; use parentheses to
+sequence there. Otherwise `f = (x) => y = x + 1; y * 2;` would be ambiguous
+between a lambda-local sequence and top-level statements. Write
+`f = (x) => (y = x + 1; y * 2);` instead. A sequence ends in an expression, not
+an assignment or trailing semicolon. The program is the degenerate case: every
+top-level item ends with `;`, with no final unterminated expression; its grammar
+and session-binding semantics are unchanged.
+
+Precedence within `Expression`, from tightest to loosest:
 
 | Level | Forms |
 | --- | --- |
@@ -267,7 +309,8 @@ arguments accept lambdas directly. `(x) => x + 1` has one expression body.
 
 There are **no** declarations with `let`, blocks, loops, `%`, `??`, template
 strings, single-quoted strings, spread, computed object keys, named arguments,
-method-style collection calls, assignment expressions, or user type annotations.
+method-style collection operations, general assignment expressions, or user type
+annotations. Local definitions are permitted only as non-final sequence items.
 There is no general recursion or forward reference facility.
 
 ## 5. Name resolution
@@ -275,8 +318,10 @@ There is no general recursion or forward reference facility.
 Resolution is static, using the environment's variables, server names, builtins,
 and derived types. Do not discover a tool by trying a shorter runtime value first.
 
-1. For a dotted chain, choose the **longest leading sequence of segments** that
-   exactly names a bound variable, server, or builtin. That is the root.
+1. Consult lexical scopes **innermost-first**, then session/server/builtin roots.
+   In the first scope with a matching root, choose the **longest leading sequence
+   of segments** that exactly names a binding. That is the root. An inner lexical
+   match takes precedence over any outer match, including a longer name.
 2. At each subsequent static record/server step, choose the **longest join** of
    the remaining segments that is a known member name. Consume it and continue.
 3. On `any`, each remaining segment is exactly one key. Do not guess dotted keys
@@ -299,13 +344,14 @@ a["b"].c;              // Root a, then exact key b, then c: 1.
 ```
 
 `a.b = 1;` defines a global named literally `a.b`; it never mutates `a`.
-For a server `s` with tools `x` and `x.y`:
+For a server `s` with tools `x`, `x.y`, and a no-fields tool `2fa-check`:
 
 ```mcpl
 s.x;                   // The x tool, a function value.
 s.x.y;                 // The x.y tool, not a member of the x function.
 s["x.y"];              // The same x.y tool.
 s["2fa-check"];        // Also reachable even though not a symbol root.
+s.2fa-check({});       // A member segment may start with a digit.
 ```
 
 For a record whose keys are `"x"` and `"x.y"`, `r.x.y` selects `"x.y"`;
@@ -319,6 +365,10 @@ containing `any` follows gradual rules. String-literal indexing of a server
 preserves the exact tool type; dynamic string indexing is
 **(implementation-defined; proposed: yield the union of its tool types, requiring
 an argument valid for every possible callable signature)**.
+
+`xs.map(f)` parses as member access followed by a call, but for `xs: string[]`
+is a **type error**: `map is not a property of string[]; hint: call map(xs, f)`.
+Function-valued record fields remain callable: `record.f(x)` is an ordinary call.
 
 There is no remaining syntax-level ambiguity after longest-match resolution.
 Conflicting roots, such as a server and builtin with the same name, must not be
@@ -343,7 +393,7 @@ order)**. Full source layout is specified in section 13.
 
 ### Creation and immutability
 
-Every completed statement commits exactly one binding:
+Every completed top-level statement commits exactly one binding:
 
 ```mcpl
 answer = 42;     // Explicit name answer.
@@ -361,16 +411,41 @@ collision with another explicit declaration in the same program)**. An explicit
 Preflight sees earlier committed bindings, earlier declarations within this
 program, all ever-used names including evicted ones, builtins, and server roots.
 Reassigning any reserved name is a type error **before any statement executes**.
-Even `x = 1; x = 2;` executes neither statement. Assignments cannot shadow
-builtins or servers. A right-hand side cannot refer to its own new name or a
+Even `x = 1; x = 2;` executes neither statement. Top-level assignments cannot
+shadow builtins or servers. A right-hand side cannot refer to its own new name or a
 later declaration: this prevents recursive declarations and forward references.
 
-Lambda parameters are lexical, not global bindings; calling a lambda does not
-produce session handles for its body or parameters. Parameter shadowing is
-**(implementation-defined; proposed: allow shadowing other local parameters and
-global variables, but not builtin/server names; lookup still selects the longest
-name and then the innermost scope for an identical name)**. Parameters do not
-make assignment or rebinding syntax available inside a lambda.
+### Sequences and lexical locals
+
+Sequence items evaluate left-to-right. Non-final expression items are evaluated
+for effect and their values discarded. `name = expr;` inside a sequence binds a
+local after evaluating `expr`, visible from that point to the end of the
+enclosing sequence and in nested scopes. A sequence's value and type are those
+of its final expression. Each array element, object value, and call argument
+has its own sequence scope; locals do not leak into adjacent elements, fields,
+or arguments. Locals are never session bindings, never allocate `resN`, and
+never appear in `run` output.
+
+Lambda parameters are also lexical, not session bindings. Parameters and sequence
+locals may shadow **anything visible**: session bindings, builtins, server names,
+and enclosing lexical names. The innermost scope wins; `(text) => upper(text)`
+is legal, and `text` in its body means the parameter, not the builtin. A name
+may be defined only once per scope: `(x, x) => x` and `(x = 1; x = 2; x)` are
+type errors, `x is already defined in this scope`. A local initializer cannot
+refer to its own new binding; an outer binding of the same name remains visible
+until the local is defined. These rules do not relax top-level immutability.
+
+For example, in a fresh session:
+
+```mcpl
+{xyz: local1 = 123; {abc: local1}};
+```
+
+```text
+res1: {xyz: {abc: number}} (1 key) = {xyz: {abc: 123}}
+```
+
+Only `res1` persists; `local1` is no longer in scope.
 
 ### Three runs in one session
 
@@ -418,7 +493,7 @@ loop sharing that connection. Disconnect drops the entire session. Session
 memory is capped at 256 MB. On overflow evict least-recently-used bindings.
 A **use** is a global variable lookup of that name during evaluation, including
 lookups in a `show` expression. `help`, static checking, output previewing, and
-reading a local lambda parameter do not use a global binding.
+reading a lambda parameter or sequence local do not use a global binding.
 
 Evicted names remain reserved. Their types must remain available for preflight,
 so using an evicted name is a runtime error, not an unknown-name type error:
@@ -478,8 +553,11 @@ signatures, not source syntax.
 | `{navigate: (args: {url: string}) => Content[]}` | Server type, a record of tools |
 
 Parenthesize unions in arrays: `(string | null)[]`. A record can combine named
-fields and a dynamic index signature. Property ordering and union normalization
-are **(implementation-defined; proposed: preserve declaration/schema order,
+fields and a dynamic index signature. Named fields take precedence: the signature
+applies only to additional keys, not to the named fields. A dynamic string-key
+read has the union of the signature type and all named-field read types (section
+9); a missing dynamic key still fails at runtime. Property ordering and union
+normalization are **(implementation-defined; proposed: preserve declaration/schema order,
 remove duplicate alternatives, and render unsafe bare keys as JSON strings)**.
 `integer` remains display metadata, not a second numeric type or an implicit
 conversion. Constraints such as integrality are checked against the original
@@ -553,7 +631,7 @@ in this type system, sound overapproximation is preferred to rejecting discovery
 | `required` | Listed named fields required; other declared fields optional; undeclared required fields use the additional-property type, or `any` if inconsistent (implementation-defined; proposed) |
 | `additionalProperties: false` | Closed record; no dynamic index signature |
 | `additionalProperties: true` or omitted | Open record with `{[key: string]: any}` in addition to named fields |
-| `additionalProperties: schema` | Index signature whose value type is derived from that schema |
+| `additionalProperties: schema` | Index signature for additional keys only, whose value type is derived from that schema; named fields retain their own types |
 | `patternProperties` | Patterns cannot be represented as literal keys; approximate dynamic values by the union of pattern value types and permitted additional-property types (implementation-defined; proposed) |
 | `propertyNames` | Does not change value types; validate key constraints at call time |
 | `dependentRequired`, `dependentSchemas` | Preserve base record shape where sound; cross-property rules validated at call time |
@@ -715,20 +793,22 @@ Image/audio data and resource blobs are base64 **strings**, not byte buffers.
 Resource links are data; returning one does not cause an implicit resource read.
 This union does not include sampling-only tool-use/tool-result blocks.
 
-Successful call value selection:
+Call value selection uses these explicit branches:
 
-1. If the result has `isError: true`, raise a runtime error carrying the tool's
-   message. Do not treat its content as a successful value, even if it validates.
-2. If an `outputSchema` exists, validate `structuredContent` against it and return
-   that structured value with the derived type.
-3. If `structuredContent` is missing, best-effort parse the text block as JSON,
-   validate it against `outputSchema`, and return that value. Multiple text blocks
-   need a policy **(implementation-defined; proposed: require exactly one text
-   block for this fallback; do not concatenate arbitrary prose or strip fences)**.
-4. A present but invalid structured result, invalid JSON fallback, missing text,
-   or validation failure is a runtime error. Do not silently return `Content[]`.
-5. Without `outputSchema`, return the content list as `Content[]`, even if the
-   result also happens to contain `structuredContent`.
+0. If `isError: true`, raise a runtime error carrying the tool's text. Do not
+   return a successful value, even if its content validates.
+1. Otherwise, if the tool has an `outputSchema`:
+   - If `structuredContent` is present, validate it against the schema and return
+     it with the derived type. A validation failure is a runtime error; do not
+     fall back to text.
+   - Otherwise, if there is exactly one text block, parse that block as JSON,
+     validate against the schema, and return the typed value. Invalid JSON or
+     validation failure is a runtime error. Do not concatenate prose or strip
+     fences.
+   - Otherwise, raise a runtime error: no valid schema-backed result is available.
+2. Otherwise, the tool has **no** `outputSchema`: return `content` as `Content[]`,
+   including an empty list or image/audio/resource blocks. Do not parse text as
+   JSON or use `structuredContent`, even if it happens to be present.
 
 The raw `CallToolResult` envelope is not exposed. `text(blocks)` concatenates only
 text blocks, in order, with `"\n"`; it does not include embedded resource text.
@@ -800,8 +880,8 @@ Tuple indexing with a literal integer preserves the slot type: if
 `entry: [string, number]`, `entry[0]` is `string` and `entry[1]` is `number`.
 Nonliteral tuple indexes yield the union of slot/tail types
 **(implementation-defined; proposed)**. Provably out-of-range literal tuple
-indexes are **(implementation-defined; proposed: type errors)**. Dynamic indexes
-and ordinary array bounds are checked at runtime; indexes must be finite integral
+indexes are type errors. Dynamic indexes and ordinary array bounds are checked
+at runtime; indexes must be finite integral
 numbers and nonnegative. No negative-from-end indexing is implied.
 
 Declared optional properties read as `T | null`. This interacts with the general
@@ -812,12 +892,21 @@ is the sole missing-key exception. A missing undeclared key, an `any` lookup,
 and a missing dynamic index-signature key still fail)**. A present property
 whose value is null also reads as null; MCPL has no `undefined` value.
 
-A direct read of a statically absent record field is a type error. A string
-literal index is the same known-property read as dot access. Computed keys are
+Statically provable access failures, such as a missing property on a known
+record or a literal index outside a tuple's range, are type errors; otherwise
+missing-key and out-of-range failures are runtime errors. A string literal index
+is the same known-property read as dot access. Named fields take precedence over
+an index signature: `r.k` and `r["k"]` have the named field's read type when `k`
+is declared. The signature covers only additional keys. Dynamic `r[k]` with
+`k: string` has the union of the signature type and all named-field read types
+(including `null` for optional reads). For example, with
+`r: {name: string, [key: string]: number}`, `r.name` is `string`, a non-named
+literal read `r["count"]` is `number`, and a dynamic read is `string | number`.
+A missing additional key still raises a runtime error. Computed keys are
 allowed for **indexing**, not for constructing object literals. Record key
 indexes require strings, not implicitly stringified numbers. Duplicate literal
 object keys are **(implementation-defined; proposed: last value wins, matching
-common JSON parsers; values are evaluated left-to-right)**.
+common JSON parsers)**. Field values evaluate left-to-right.
 
 ### Lambdas and functions
 
@@ -841,13 +930,18 @@ there are no optional/rest/default parameters in source. Function assignability
 is **(implementation-defined; proposed: contravariant parameter types and
 covariant results, with gradual checks for `any`)**.
 
-Recursion is not a supported programming construct. A lambda cannot capture its
-own binding, which does not exist until its right-hand side finishes. With
-first-class functions and `any`, however, self-application can encode divergence
-without a recursive name. Thus the phrase “total by construction” is an intent,
-not a proven theorem of the surface grammar alone. **(implementation-defined;
-proposed: rely on mandatory fuel exhaustion to terminate such evaluations rather
-than add an unapproved recursive-function syntax or convergence analysis)**.
+There are no recursive declarations, loops, or forward references. A lambda
+cannot capture its own new binding, which does not exist until its right-hand
+side finishes. Calling a value of type `any` is allowed, so self-application is
+legal:
+
+```mcpl
+f = (x) => x(x);
+f(f);
+```
+
+`f` has type `(x: any) => any`. The call exhausts fuel; the earlier `f` binding
+is kept. **Termination is guaranteed by the fuel budget, not by construction.**
 Waiting for a downstream tool is separately unbounded by design.
 
 ### Bounded flow narrowing
@@ -862,7 +956,8 @@ to these recognized condition forms:
 | `null != x` | Remove `null` from `x` | Keep `null` |
 | `x.k == "lit"` | Keep union variants with that literal discriminant | Exclude those variants |
 
-Here `x` is a variable or a member/index path, not an arbitrary computation.
+Here `x` is a variable (including a sequence local or lambda parameter) or a
+member/index path, not an arbitrary computation.
 Index-path identity is **(implementation-defined; proposed: only identical paths
 with literal indexes are stable narrowing targets; do not equate independently
 evaluated computed-index expressions)**. Discriminant `k` is a known literal
@@ -890,8 +985,9 @@ result.kind == "ok" ? str(result.value) : result.message;
 1. Validate input/source limits, parse, reserve planned names in a preflight
    environment, and check the **entire** program. No tool call or binding commit
    can occur before this succeeds.
-2. Evaluate statements in source order. Operands, object fields, array elements,
-   and call arguments evaluate left-to-right **(implementation-defined; proposed)**.
+2. Evaluate statements and sequence items in source order. Object fields, array
+   elements, and call arguments evaluate left-to-right. Operand order is
+   **(implementation-defined; proposed: left-to-right)**, subject to short-circuiting.
 3. Evaluate each statement's right-hand side or expression to a complete value.
    Check value/resource limits, then commit its binding before starting the next.
 4. Record its typed preview. Preview truncation must not evaluate the expression
@@ -1105,33 +1201,40 @@ Evaluate one MCPL expression against this session and display its value without 
     "depth": {"type": "integer", "minimum": 0, "maximum": 64},
     "max_items": {"type": "integer", "minimum": 0, "maximum": 100000},
     "max_string": {"type": "integer", "minimum": 0, "maximum": 16777216},
-    "max_output": {"type": "integer", "minimum": 1, "maximum": 65536}
+    "max_output": {"type": "integer", "minimum": 256, "maximum": 65536}
   },
   "required": ["expression"],
   "additionalProperties": false
 }
 ```
 
-Integral bounds in this schema are **(implementation-defined; proposed: accept
-only nonnegative integral disclosure counts within the hard value/output limits;
-`max_output` must be positive)**. This refines the interview's number-valued
-optional parameters without allowing fractional depths or lengths.
+`max_output` has a minimum of 256 bytes. Other integral bounds in this schema
+are **(implementation-defined; proposed: accept only nonnegative integral
+disclosure counts within the hard value/output limits)**. This refines the
+interview's number-valued optional parameters without allowing fractional depths
+or lengths.
 
-`show` parses exactly one expression, not a program: no assignment or statement
-sequence. Semicolon handling is **(implementation-defined; proposed: no trailing
-semicolon; comments/whitespace around the expression are allowed)**. All static,
-runtime, schema, fuel, and value checks still apply. It creates no binding, does
-not consume an automatic name, and global lookups count toward LRU. It may invoke
-tools because it evaluates an expression, not a restricted path language.
+`show` parses exactly one `Expression`, not a program: no top-level assignment or
+statement sequence. Bracket-delimited sequences and locals are permitted inside
+that expression. Semicolon handling is **(implementation-defined; proposed: no
+trailing semicolon; comments/whitespace around the expression are allowed)**.
+All static, runtime, schema, fuel, and value checks still apply. It creates no
+session binding, does not consume an automatic name, and global lookups count
+toward LRU. It may invoke tools because it evaluates an expression, not a
+restricted path language.
 
 Disclosure defaults are **(implementation-defined; proposed: depth 64,
 max_items 100000, max_string 16777216, max_output 65536; `max_items` limits both
-array entries and object keys)**. The selected output cap is hard and cannot
-exceed 64 KB. Depth zero collapses containers; type-only values display their type
-regardless of depth. Normal JSON-like value rendering uses the same truncation
-markers as `run`, without a fabricated binding name. Top-level string output
-includes its size **(implementation-defined; proposed: prefix `string (N chars) =`
-when truncated so full length is not lost)**.
+array entries and object keys)**. Caller-selected disclosure caps apply only to
+the rendered value; diagnostics ignore those caps and are limited only by the 64 KB
+hard cap. The selected value output cap is hard and cannot exceed 64 KB. Depth
+zero collapses containers; type-only values display their type regardless of
+depth. Normal JSON-like value rendering uses the same truncation markers as
+`run`, without a fabricated binding name. If even the collapsed top-level form
+cannot fit the output budget, render only its type and size; the type may be
+shortened to fit. Top-level string output includes its size
+**(implementation-defined; proposed: prefix `string (N chars) =` when truncated so
+full length is not lost)**.
 
 Example MCP arguments and response text:
 
@@ -1206,6 +1309,17 @@ syntax error: binary operator '==' requires whitespace on both sides
 1 | a==b;
   |  ^^
   hint: add whitespace on both sides of '=='
+```
+
+### Sequence without enclosing brackets
+
+```text
+syntax error: unexpected '='
+ --> 1:7
+  |
+1 | x = a = 1; a + 1;
+  |       ^
+  hint: to sequence inside an expression, wrap it in parentheses: (a = 1; a + 1)
 ```
 
 ### Unknown name with suggestion
@@ -1362,6 +1476,7 @@ Each run starts with 10,000,000 units. Charges are deterministic, independent of
 elapsed time:
 
 - One unit per evaluated expression node, including each lambda-body invocation.
+  Sequence items cost like any expression node; locals do not bypass fuel.
 - Constructing or copying a collection costs its element count.
 - String concatenation, substring, and regex work charge for characters touched.
 - `sort_by` charges `n · log n` work, plus key-function evaluation.
@@ -1399,7 +1514,8 @@ These are the entire v0.1 builtin set. Functions are called as `map(xs, f)`, not
 `xs.map(f)`. `help` and `show` are **not** builtins. Types `T`, `U`, `A`, `B`, and
 `K` below are documentation metavariables; `K` is `number` or `string`.
 Signatures with `?` describe optional builtin arguments, not source parameter
-annotations. Each builtin name is permanently reserved.
+annotations. Each builtin name is permanently reserved at session scope; lexical
+parameters and locals may shadow it.
 
 Unless an edge behavior was decided explicitly, the following tables' exact
 arity, defaults, and edge policies are **(implementation-defined; proposed)**.
@@ -1485,16 +1601,18 @@ semantic data; sort explicitly if order matters.
 | `substring(s: string, start: number, end?: number) => string` | Half-open Unicode-scalar slice. Proposed: integral nonnegative bounds, default end length, clamp to length, end before start yields `""`. |
 | `index_of(s: string, part: string) => number` | First substring position in Unicode scalars; proposed: −1 if absent, 0 for empty substring. |
 | `lines(s: string) => string[]` | Proposed: split LF/CRLF, remove separators, omit the final empty item from a terminal newline; empty input returns `[]`. A lone CR is retained as text. |
-| `regex_match(s: string, pattern: string) => boolean` | Proposed: true if any substring matches; use anchors for whole-string matching. Invalid regex is a runtime error. |
-| `regex_find_all(s: string, pattern: string) => string[][]` | All nonoverlapping matches, each containing the full match first, then capture groups. No matches yields `[]`. |
-| `regex_replace(s: string, pattern: string, replacement: string) => string` | Proposed: replace all nonoverlapping regex matches with literal replacement text; no replacement interpolation syntax in v0.1. |
+| `regex_match(s: string, pattern: string) => boolean` | Use raw strings for regex patterns. Proposed: true if any substring matches; use anchors for whole-string matching. Invalid regex is a runtime error. |
+| `regex_find_all(s: string, pattern: string) => string[][]` | Use raw strings for regex patterns. All nonoverlapping matches, each containing the full match first, then capture groups. No matches yields `[]`. |
+| `regex_replace(s: string, pattern: string, replacement: string) => string` | Use raw strings for regex patterns. Proposed: replace all nonoverlapping regex matches with literal replacement text; no replacement interpolation syntax in v0.1. |
 
 Regexes use a **linear-time** engine. Dialect and unmatched-capture policy are
 **(implementation-defined; proposed: Rust `regex` syntax, Unicode enabled;
 no backreferences or look-around; unmatched optional captures become `""` to
 preserve `string[][]`. Empty matches advance by a Unicode scalar, allowing one
-terminal empty match, so scanning always terminates)**. Pattern strings use JSON
-escaping first: write `"\\d+"`, not an invalid JSON `"\d+"`.
+terminal empty match, so scanning always terminates)**. Use raw strings for regex
+patterns: `r"\d+"` passes the backslash directly to the regex engine. Normal
+strings process JSON escapes first: `"\bRust\b"` contains backspaces and
+`"\d"` is a syntax error, not a digit-class pattern.
 Unicode case/whitespace tables are **(implementation-defined; proposed: the
 implementation's pinned Unicode data version, reported by build documentation)**.
 
@@ -1621,22 +1739,40 @@ res2: string (149 chars) = "Page title: Index\n[A](https://e.test/a)\n[B](https:
 **Run 2 — extract links, keep five, visit sequentially, collect titles:**
 
 ```mcpl
-regex_find_all(res2, "https://e[.]test/[a-z]");
+regex_find_all(res2, r"https://e[.]test/[a-z]");
 slice(res3, 0, 5);
-map(res4, (link) => ((navigation) => {
-  url: link[0],
-  title: regex_find_all(
-    text(playwright.browser_snapshot({})),
-    "Page title: ([^\n]+)"
-  )[0][1]
-})(playwright.browser_navigate({url: link[0]})));
+map(res4, (link) => (
+  playwright.browser_navigate({url: link[0]});
+  {
+    url: link[0],
+    title: regex_find_all(
+      text(playwright.browser_snapshot({})),
+      r"Page title: ([^\n]+)"
+    )[0][1]
+  }
+));
 ```
 
-The immediately called lambda is an ordinary single-expression lambda, not a
-block: its body is a record literal. Evaluating its argument completes navigation
-before evaluating the record and taking the snapshot. `navigation` is an unused
-local parameter, not a session binding. This avoids inventing statement blocks
-or relying on method-style collection operations.
+The parenthesized sequence completes navigation before constructing the record
+and taking the snapshot. The navigation value is discarded, not committed as a
+session binding. In the raw pattern, `\n` is a regex escape for newline, not an
+MCPL string escape.
+
+An equivalent replacement for the `map` statement uses a nested sequence with a
+local snapshot string:
+
+```mcpl
+map(res4, (link) => (
+  playwright.browser_navigate({url: link[0]});
+  (snap = text(playwright.browser_snapshot({})); {
+    url: link[0],
+    title: regex_find_all(snap, r"Page title: ([^\n]+)")[0][1]
+  })
+));
+```
+
+Use either variant, not both; `snap` is local to each invocation and creates no
+output binding. Both have the same expected output and downstream-call order.
 
 Expected output:
 
@@ -1747,10 +1883,29 @@ Had statement 4 instead redefined `good`, preflight would reject the **entire**
 program and neither earlier statement would run. Static failure is not a partial
 transaction; runtime failure is partial progress.
 
+### E. Locals and raw regex strings
+
+Complete program in a fresh session:
+
+```mcpl
+(source = "Rust 123"; matches = regex_find_all(source, r"\d+"); {
+  match: matches[0][0],
+  count: len(matches)
+});
+```
+
+Expected `run` output:
+
+```text
+res1: {match: string, count: number} (2 keys) = {match: "123", count: 1}
+```
+
+Only `res1` persists. `source` and `matches` are lexical locals; the raw pattern
+passes `\d+` unchanged to the regex engine.
+
 ## 17. Open questions and deferred work
 
-- General recursion and convergence analysis; in particular a formal totality
-  argument in the presence of gradual `any` and higher-order self-application.
+- General recursion and convergence analysis beyond fuel-based termination.
 - A null-defaulting operator such as `??`; it is not v0.1 syntax.
 - Parallel map or other parallel downstream execution.
 - Proxying MCP resources and prompts in addition to tool calls.
@@ -1766,24 +1921,24 @@ boundaries, rather than hidden language additions, are:
 
 1. Exact lexer/PEG details, associativity, malformed Unicode treatment, symbol
    handling for configured server names, and duplicate-key policy.
-2. Automatic-name allocation on collisions/failures, local parameter shadowing,
-   closure capture accounting, session serialization, and LRU byte accounting.
+2. Automatic-name allocation on collisions/failures, closure capture accounting,
+   session serialization, and LRU byte accounting.
 3. Conservative schema approximations, tuple tail/optional display, reference
    resolution, dialect/format validation, and the MCP content-schema baseline.
 4. Absent optional fields versus arbitrary missing-key crashes; literal widening,
-   tuple-index diagnostics, callable assignability, and runtime gradual checks.
+   callable assignability and runtime gradual checks.
 5. Exact display size labels, depth counting, output-cap behavior, `help` topic
    lookup, and `show` disclosure defaults/budget application.
 6. Precise builtin arities and edge cases not settled in the interview; regex
    syntax, sort key evaluation, conversion, Unicode, and serialization choices.
 7. Exact fuel rounding/native-work charges and byte-unit interpretation.
 
-Three interview tensions must not be papered over: the approved short description
-lists unary `!` among operators needing surrounding spaces while prefix forms
-are allowed; “missing keys crash” coexists with optional reads/narrowing; and
-“total by construction” coexists with `any`-typed higher-order functions and
-unbounded external waits. The detailed rules above explain each boundary,
-preserve the approved description verbatim, and mark the proposed resolutions.
+Two interview tensions remain explicit: the approved short description lists
+unary `!` among operators needing surrounding spaces while prefix forms are
+allowed, and “missing keys crash” coexists with optional reads/narrowing. The
+detailed rules above explain these boundaries, preserve the approved description
+verbatim, and mark the proposed optional-read resolution. Fuel-based termination
+is decided; it does not bound waiting for external tools.
 
 The repository's existing stub also has only `run` and imposes deadlines. That
 is an implementation gap, not authority to change this specification. Parser,
