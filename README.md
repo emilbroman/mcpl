@@ -9,6 +9,8 @@ connection errors. Downstream tool schemas are not exposed as upstream tools.
 ## Language specification
 
 [MCPL v0.1 target specification](docs/language.md) (not implemented by the stub).
+The library's [schema-derived types](docs/types.md) are available for the future
+checker/runtime; the upstream MCP tool surface is still the proxy stub.
 
 ## Build and test
 
