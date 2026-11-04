@@ -28,33 +28,25 @@ fn expect(name: &str, args: Vec<Json>, expected: Json) {
 
 #[test]
 fn pure_collection_builtins() {
-    expect("len", vec![json!([1, 2])], json!(2.0));
-    expect("len", vec![json!({"x": 1})], json!(1.0));
-    expect("reverse", vec![json!([1, 2, 3])], json!([3.0, 2.0, 1.0]));
-    expect("slice", vec![json!([1, 2, 3]), json!(1)], json!([2.0, 3.0]));
+    expect("len", vec![json!([1, 2])], json!(2));
+    expect("len", vec![json!({"x": 1})], json!(1));
+    expect("reverse", vec![json!([1, 2, 3])], json!([3, 2, 1]));
+    expect("slice", vec![json!([1, 2, 3]), json!(1)], json!([2, 3]));
     expect(
         "slice",
         vec![json!([1, 2, 3]), json!(2), json!(1)],
         json!([]),
     );
     expect("slice", vec![json!([1]), json!(1e100)], json!([]));
-    expect("concat", vec![json!([1]), json!(["x"])], json!([1.0, "x"]));
+    expect("concat", vec![json!([1]), json!(["x"])], json!([1, "x"]));
     expect(
         "unique",
         vec![json!([{"a":1,"b":2}, {"b":2,"a":1}, null, null])],
-        json!([{"a":1.0,"b":2.0}, null]),
+        json!([{"a":1,"b":2}, null]),
     );
-    expect(
-        "zip",
-        vec![json!([1, 2]), json!(["a"])],
-        json!([[1.0, "a"]]),
-    );
-    expect("range", vec![json!(3)], json!([0.0, 1.0, 2.0]));
-    expect(
-        "range",
-        vec![json!(-2), json!(2)],
-        json!([-2.0, -1.0, 0.0, 1.0]),
-    );
+    expect("zip", vec![json!([1, 2]), json!(["a"])], json!([[1, "a"]]));
+    expect("range", vec![json!(3)], json!([0, 1, 2]));
+    expect("range", vec![json!(-2), json!(2)], json!([-2, -1, 0, 1]));
     expect("range", vec![json!(4), json!(1)], json!([]));
     expect(
         "range",
@@ -62,12 +54,12 @@ fn pure_collection_builtins() {
             json!(9_007_199_254_740_990i64),
             json!(9_007_199_254_740_991i64),
         ],
-        json!([9_007_199_254_740_990.0]),
+        json!([9_007_199_254_740_990_i64]),
     );
-    expect("sum", vec![json!([2, -1, 3])], json!(4.0));
-    expect("sum", vec![json!([])], json!(0.0));
-    expect("min", vec![json!([2, -1, 3])], json!(-1.0));
-    expect("max", vec![json!([2, -1, 3])], json!(3.0));
+    expect("sum", vec![json!([2, -1, 3])], json!(4));
+    expect("sum", vec![json!([])], json!(0));
+    expect("min", vec![json!([2, -1, 3])], json!(-1));
+    expect("max", vec![json!([2, -1, 3])], json!(3));
     expect("first", vec![json!(["x", "y"])], json!("x"));
     expect("last", vec![json!(["x", "y"])], json!("y"));
     assert_eq!(
@@ -84,11 +76,11 @@ fn pure_collection_builtins() {
 #[test]
 fn object_builtins_preserve_insertion_order() {
     expect("keys", vec![json!({"z":1,"a":2})], json!(["z", "a"]));
-    expect("values", vec![json!({"z":1,"a":2})], json!([1.0, 2.0]));
+    expect("values", vec![json!({"z":1,"a":2})], json!([1, 2]));
     expect(
         "entries",
         vec![json!({"z":1,"a":2})],
-        json!([["z", 1.0], ["a", 2.0]]),
+        json!([["z", 1], ["a", 2]]),
     );
     let entries = run("entries", vec![json!({"z":1})]).unwrap();
     assert_eq!(
@@ -115,12 +107,12 @@ fn object_builtins_preserve_insertion_order() {
         object
             .to_json(&mut Budget::default(), Span::default(), false)
             .unwrap(),
-        json!({"z":3.0,"a":2.0,"__proto__":null})
+        json!({"z":3,"a":2,"__proto__":null})
     );
     expect(
         "merge",
         vec![json!({"z":1,"a":2}), json!({"z":3,"b":4})],
-        json!({"z":3.0,"a":2.0,"b":4.0}),
+        json!({"z":3,"a":2,"b":4}),
     );
     expect("has", vec![json!({"a":null}), json!("a")], json!(true));
     expect("has", vec![json!({"a":null}), json!("b")], json!(false));
@@ -128,13 +120,13 @@ fn object_builtins_preserve_insertion_order() {
 
 #[test]
 fn strings_use_unicode_scalars_and_literal_replacement() {
-    expect("len", vec![json!("é🙂")], json!(2.0));
+    expect("len", vec![json!("é🙂")], json!(2));
     expect("str", vec![json!("x")], json!("x"));
     expect("str", vec![json!(1)], json!("1"));
     expect("str", vec![json!(true)], json!("true"));
     expect("str", vec![json!(null)], json!("null"));
     expect("str", vec![json!([true, null])], json!("[true,null]"));
-    expect("num", vec![json!("-12.5e+2")], json!(-1250.0));
+    expect("num", vec![json!("-12.5e+2")], json!(-1250));
     expect(
         "split",
         vec![json!("a,,b,"), json!(",")],
@@ -173,8 +165,8 @@ fn strings_use_unicode_scalars_and_literal_replacement() {
         vec![json!("é🙂"), json!(2), json!(1)],
         json!(""),
     );
-    expect("index_of", vec![json!("é🙂z"), json!("z")], json!(2.0));
-    expect("index_of", vec![json!("é🙂z"), json!("x")], json!(-1.0));
+    expect("index_of", vec![json!("é🙂z"), json!("z")], json!(2));
+    expect("index_of", vec![json!("é🙂z"), json!("x")], json!(-1));
     expect(
         "lines",
         vec![json!("a\r\nb\nc\r\n")],
@@ -224,15 +216,15 @@ fn regexes_are_linear_engine_with_optional_and_empty_captures() {
 
 #[test]
 fn math_json_text_and_types() {
-    expect("floor", vec![json!(-1.2)], json!(-2.0));
-    expect("ceil", vec![json!(-1.2)], json!(-1.0));
-    expect("round", vec![json!(-1.5)], json!(-2.0));
-    expect("round", vec![json!(1.5)], json!(2.0));
+    expect("floor", vec![json!(-1.2)], json!(-2));
+    expect("ceil", vec![json!(-1.2)], json!(-1));
+    expect("round", vec![json!(-1.5)], json!(-2));
+    expect("round", vec![json!(1.5)], json!(2));
     expect("abs", vec![json!(-1.5)], json!(1.5));
     expect(
         "parse_json",
         vec![json!(" {\"z\":1,\"a\":[true,null]} ")],
-        json!({"z":1.0,"a":[true,null]}),
+        json!({"z":1,"a":[true,null]}),
     );
     expect("to_json", vec![json!("a\n\"b")], json!("\"a\\n\\\"b\""));
     expect(

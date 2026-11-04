@@ -215,8 +215,7 @@ fn stringify(value: &Value, plain_string: bool, budget: &mut Budget, span: Span)
     }
     let size = json_size(value, budget, span)?;
     scan(budget, size, span)?;
-    let mut json = value.to_json(budget, span, false)?;
-    normalize_numbers(&mut json, budget, span)?;
+    let json = value.to_json(budget, span, false)?;
     let text = serde_json::to_string(&json)
         .map_err(|e| runtime(format!("cannot serialize JSON: {e}"), span))?;
     Value::string(text, budget, span)
@@ -834,35 +833,6 @@ fn parse_json(s: &str, budget: &mut Budget, span: Span) -> Result<Value> {
             .error
             .unwrap_or_else(|| runtime(format!("invalid JSON: {error}"), span))),
     }
-}
-
-fn normalize_numbers(value: &mut serde_json::Value, budget: &mut Budget, span: Span) -> Result<()> {
-    budget.charge(1, span)?;
-    match value {
-        serde_json::Value::Number(number) => {
-            if let Some(n) = number.as_f64()
-                && n.fract() == 0.0
-            {
-                if n >= i64::MIN as f64 && n < (i64::MAX as f64) {
-                    *number = (n as i64).into();
-                } else if n >= 0.0 && n < (u64::MAX as f64) {
-                    *number = (n as u64).into();
-                }
-            }
-        }
-        serde_json::Value::Array(xs) => {
-            for x in xs {
-                normalize_numbers(x, budget, span)?;
-            }
-        }
-        serde_json::Value::Object(xs) => {
-            for x in xs.values_mut() {
-                normalize_numbers(x, budget, span)?;
-            }
-        }
-        _ => (),
-    }
-    Ok(())
 }
 
 fn is_json(value: &Value, budget: &mut Budget, span: Span) -> Result<bool> {

@@ -51,11 +51,11 @@ async fn arithmetic_short_circuit_and_sequences() {
     assert_eq!(
         values.iter().map(json_value).collect::<Vec<_>>(),
         vec![
-            json!(14.0),
+            json!(14),
             json!(false),
             json!(true),
-            json!(1.0),
-            json!([3.0, 5.0])
+            json!(1),
+            json!([3, 5])
         ]
     );
 }
@@ -65,14 +65,14 @@ async fn all_callback_builtins_are_sequential_and_strict() {
     let source = r#"map([1, 2, 3], (x) => x * 2); filter([1, 2, 3], (x) => x > 1); reduce([1, 2, 3], (acc, x) => acc + x, 10); flat_map([1, 2], (x) => [x, x]); find([1, 2, 3], (x) => x > 1); any([1, 2], (x) => x > 1); all([1, 2], (x) => x > 0); sort_by([{n: 2, i: 0}, {n: 1, i: 1}, {n: 2, i: 2}], (x) => x.n); group_by(["a", "bb", "c"], (x) => str(len(x)));"#;
     let values = run(source, &mut session).await.unwrap();
     let expected = vec![
-        json!([2.0, 4.0, 6.0]),
-        json!([2.0, 3.0]),
-        json!(16.0),
-        json!([1.0, 1.0, 2.0, 2.0]),
-        json!(2.0),
+        json!([2, 4, 6]),
+        json!([2, 3]),
+        json!(16),
+        json!([1, 1, 2, 2]),
+        json!(2),
         json!(true),
         json!(true),
-        json!([{"n":1.0,"i":1.0},{"n":2.0,"i":0.0},{"n":2.0,"i":2.0}]),
+        json!([{"n":1,"i":1},{"n":2,"i":0},{"n":2,"i":2}]),
         json!({"1":["a","c"],"2":["bb"]}),
     ];
     assert_eq!(values.iter().map(json_value).collect::<Vec<_>>(), expected);
@@ -106,7 +106,7 @@ async fn closures_capture_globals_and_lexical_values_across_runs() {
             .await
             .unwrap()
         ),
-        json!([10.0, 11.0, 22.0, 10.0])
+        json!([10, 11, 22, 10])
     );
 }
 #[tokio::test]
@@ -122,7 +122,7 @@ async fn checked_longest_match_and_literal_index_remain_distinct() {
             .await
             .unwrap()
         ),
-        json!([2.0, 1.0, 4.0, 3.0, 3.0])
+        json!([2, 1, 4, 3, 3])
     );
 }
 #[tokio::test]
@@ -138,7 +138,7 @@ async fn runtime_failure_keeps_completed_bindings() {
     assert!(error.message.contains("out of range"));
     assert_eq!(
         json_value(&expression("total", &mut session).await.unwrap()),
-        json!(30.0)
+        json!(30)
     );
     assert!(!session.environment.bindings.contains_key("unreachable"));
 }
@@ -227,6 +227,20 @@ async fn retained_sharing_and_nested_growth_are_bounded() {
         .await
         .unwrap_err();
     assert_eq!(error.category, Category::Limit);
+}
+
+#[tokio::test]
+async fn tool_arguments_serialize_integral_numbers_without_fraction() {
+    // Tool arguments go through Value::to_json; servers with `integer`
+    // parameters (e.g. git_log max_count) reject `5.0`.
+    let mut session = SessionState::default();
+    let value = expression("{max_count: 5, nested: [-3, 2.5, 1e3]}", &mut session)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_string(&json_value(&value)).unwrap(),
+        r#"{"max_count":5,"nested":[-3,2.5,1000]}"#
+    );
 }
 
 #[tokio::test]

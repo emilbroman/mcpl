@@ -344,7 +344,7 @@ impl Value {
         Ok(match self.kind() {
             ValueKind::Null => serde_json::Value::Null,
             ValueKind::Bool(b) => (*b).into(),
-            ValueKind::Number(n) => serde_json::json!(n),
+            ValueKind::Number(n) => json_number(*n),
             ValueKind::String(s) => {
                 budget.charge(s.chars().count(), span)?;
                 s.clone().into()
@@ -589,4 +589,18 @@ fn equal_json(a: &Value, b: &Value, budget: &mut Budget, span: Span) -> Result<b
         }
         _ => false,
     })
+}
+
+/// Renders a finite f64 as a JSON number, emitting integral values without a
+/// fractional part (`5`, not `5.0`) so integer-typed tool parameters accept them.
+fn json_number(n: f64) -> serde_json::Value {
+    if n.fract() == 0.0 {
+        if n >= i64::MIN as f64 && n < i64::MAX as f64 {
+            return (n as i64).into();
+        }
+        if n >= 0.0 && n < u64::MAX as f64 {
+            return (n as u64).into();
+        }
+    }
+    serde_json::json!(n)
 }
