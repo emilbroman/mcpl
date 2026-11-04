@@ -1,0 +1,17 @@
+### Result
+{
+  "texts": [
+    "Rust ownership guide",
+    "Async Rust patterns",
+    "Rust on embedded devices",
+    "Learning Rust macros",
+    "Rust error handling",
+    "Web services in Rust",
+    "Rust release notes"
+  ],
+  "count": 7
+}
+### Ran Playwright code
+```js
+await page.evaluate('() => { const texts = Array.from(document.querySelectorAll(\'a[href]\'), a => a.innerText).filter(text => text.includes(\'Rust\')); return {texts, count: texts.length}; }');
+```

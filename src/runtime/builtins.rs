@@ -812,7 +812,11 @@ impl<'de> Visitor<'de> for JsonSeed<'_, '_> {
     }
 }
 
-fn parse_json(s: &str, budget: &mut Budget, span: Span) -> Result<Value> {
+fn json_prefix(
+    s: &str,
+    budget: &mut Budget,
+    span: Span,
+) -> Result<(std::result::Result<Value, serde_json::Error>, usize)> {
     scan(budget, s.len(), span)?;
     let mut state = JsonState {
         budget,
@@ -826,12 +830,113 @@ fn parse_json(s: &str, budget: &mut Budget, span: Span) -> Result<Value> {
         depth: 0,
     }
     .deserialize(&mut deserializer);
-    let result = result.and_then(|value| deserializer.end().map(|()| value));
+    if let Some(error) = state.error {
+        return Err(error);
+    }
+    // Converting to a stream exposes the cursor without parsing a second value.
+    let end = deserializer.into_iter::<de::IgnoredAny>().byte_offset();
+    Ok((result, end))
+}
+
+fn json_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\r' | '\n')
+}
+
+fn json_excerpt(s: &str) -> String {
+    let mut excerpt = String::new();
+    let mut length = 0;
+    for c in s.chars() {
+        let escaped = serde_json::to_string(&c.to_string()).unwrap();
+        let escaped = &escaped[1..escaped.len() - 1];
+        let size = escaped.chars().count();
+        if length + size > 39 {
+            excerpt.push('…');
+            break;
+        }
+        excerpt.push_str(escaped);
+        length += size;
+    }
+    format!("\"{excerpt}\"")
+}
+
+fn json_character(s: &str, byte: usize, budget: &mut Budget, span: Span) -> Result<usize> {
+    scan(budget, byte, span)?;
+    Ok(s[..byte].chars().count())
+}
+
+fn parse_json(s: &str, budget: &mut Budget, span: Span) -> Result<Value> {
+    let (result, end) = json_prefix(s, budget, span)?;
     match result {
-        Ok(value) => Ok(value),
-        Err(error) => Err(state
-            .error
-            .unwrap_or_else(|| runtime(format!("invalid JSON: {error}"), span))),
+        Ok(value) => {
+            scan(budget, s.len() - end, span)?;
+            let trailing = s[end..].trim_start_matches(json_whitespace);
+            if trailing.is_empty() {
+                return Ok(value);
+            }
+            let end = json_character(s, end, budget, span)?;
+            Err(runtime(
+                format!(
+                    "invalid JSON: a complete JSON value ends at character {end}, followed by {}",
+                    json_excerpt(trailing)
+                ),
+                span,
+            )
+            .with_hint(format!(
+                "isolate the JSON before parsing, e.g. substring(s, 0, {end}), or split on the text that follows it"
+            )))
+        }
+        Err(error) => {
+            scan(budget, s.len(), span)?;
+            let trimmed = s.trim_start_matches(json_whitespace);
+            let starts_json = trimmed.starts_with([
+                '{', '[', '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+            ]) || (!trimmed.is_empty()
+                && ["true", "false", "null"]
+                    .iter()
+                    .any(|word| trimmed.starts_with(word) || word.starts_with(trimmed)));
+            if starts_json {
+                scan(budget, s.len(), span)?;
+                let line_start = s
+                    .split_inclusive('\n')
+                    .take(error.line().saturating_sub(1))
+                    .map(str::len)
+                    .sum::<usize>();
+                let mut byte = (line_start + error.column().saturating_sub(1)).min(s.len());
+                while !s.is_char_boundary(byte) {
+                    byte -= 1;
+                }
+                let position = json_character(s, byte, budget, span)?;
+                return Err(runtime(format!("invalid JSON: {error}"), span).with_hint(
+                    format!("check the JSON syntax at character {position} in the input string (zero-based)")
+                ));
+            }
+            scan(budget, s.len(), span)?;
+            let hint = if let Some(start) = s.find(['{', '[']) {
+                let position = json_character(s, start, budget, span)?;
+                let (candidate, end) = json_prefix(&s[start..], budget, span)?;
+                if candidate.is_ok() {
+                    let end = json_character(s, start + end, budget, span)?;
+                    format!(
+                        "a JSON value spans characters {position}..{end}; try substring(s, {position}, {end})"
+                    )
+                } else {
+                    let delimiter = &s[start..start + 1];
+                    format!(
+                        "the first {delimiter} is at character {position}; try substring(s, {position})"
+                    )
+                }
+            } else {
+                "expected a JSON value: {, [, \", a number, true, false or null".into()
+            };
+            Err(runtime(
+                format!(
+                    "invalid JSON: the string starts with {}, not a JSON value",
+                    json_excerpt(trimmed)
+                ),
+                span,
+            )
+            .with_hint(hint))
+        }
     }
 }
 

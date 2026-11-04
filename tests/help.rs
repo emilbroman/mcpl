@@ -77,6 +77,26 @@ fn overloads_and_optional_arguments_are_not_lost_to_frontend_approximations() {
 }
 
 #[test]
+fn parse_json_help_explains_schema_less_and_wrapped_results() {
+    let text = render_help(
+        Some("parse_json"),
+        &Registry::default(),
+        &Environment::default(),
+    )
+    .unwrap();
+    for recipe in [
+        "Tools without `outputSchema` return `Content[]`",
+        "`parse_json(text(r))` parses them when the text is JSON",
+        "isolate it first (`substring`, `split`, `index_of`)",
+        "the error identifies the JSON bounds",
+        "zero-based Unicode scalar",
+        "half-open",
+    ] {
+        assert!(text.contains(recipe), "missing {recipe}: {text}");
+    }
+}
+
+#[test]
 fn unknown_topics_are_type_errors_with_valid_suggestions() {
     let environment = Environment::default();
     let registry = Registry::default();

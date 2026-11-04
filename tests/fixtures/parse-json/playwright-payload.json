@@ -1,0 +1,12 @@
+{
+  "texts": [
+    "Rust ownership guide",
+    "Async Rust patterns",
+    "Rust on embedded devices",
+    "Learning Rust macros",
+    "Rust error handling",
+    "Web services in Rust",
+    "Rust release notes"
+  ],
+  "count": 7
+}

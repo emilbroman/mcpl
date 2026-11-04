@@ -1,0 +1,6 @@
+runtime error: invalid JSON: a complete JSON value ends at character 229, followed by "### Ran Playwright code\n```js\nawait p…"
+ --> 1:1
+  |
+1 | parse_json(split(split(body, "### Result\n")[1], "\n\n###")[0])
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  hint: isolate the JSON before parsing, e.g. substring(s, 0, 229), or split on the text that follows it
