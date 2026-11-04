@@ -1,0 +1,6 @@
+runtime error: invalid JSON: the string starts with "### Result\n{\n  \"texts\": [\n    \"Ru…", not a JSON value
+ --> 1:1
+  |
+1 | parse_json(raw)
+  | ^^^^^^^^^^^^^^^
+  hint: a JSON value spans characters 11..240; try substring(s, 11, 240)

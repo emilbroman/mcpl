@@ -442,3 +442,192 @@ fn downstream_decoded_strings_check_length_before_fuel_scan() {
     assert_eq!(error.category, Category::Limit);
     assert!(error.message.contains("string length"));
 }
+
+#[test]
+fn json_trailing_bounds_are_substring_compatible_for_every_value_kind() {
+    for payload in [
+        "{}",
+        "[\"é🙂\"]",
+        "\"é🙂\"",
+        "12.5e-2",
+        "true",
+        "false",
+        "null",
+    ] {
+        let input = format!(" \t{payload}\r\n next");
+        let end = 2 + payload.chars().count();
+        let error = run("parse_json", vec![json!(input)]).unwrap_err();
+        assert_eq!(error.category, Category::Runtime);
+        assert_eq!(
+            error.message,
+            format!(
+                "invalid JSON: a complete JSON value ends at character {end}, followed by \"next\""
+            )
+        );
+        assert_eq!(
+            error.hint.unwrap(),
+            format!(
+                "isolate the JSON before parsing, e.g. substring(s, 0, {end}), or split on the text that follows it"
+            )
+        );
+        let slice = run("substring", vec![json!(input), json!(0), json!(end)]).unwrap();
+        let parsed = builtins::call(
+            "parse_json",
+            vec![slice],
+            &mut Budget::default(),
+            Span::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed
+                .to_json(&mut Budget::default(), Span::default(), false)
+                .unwrap(),
+            serde_json::from_str::<Json>(payload).unwrap()
+        );
+        expect(
+            "parse_json",
+            vec![json!(format!(" \t{payload}\r\n"))],
+            serde_json::from_str(payload).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn json_leading_bounds_count_scalars_not_bytes_or_utf16() {
+    let prefix = " \n💡 é\r\n";
+    let payload = "[\"🙂\", {\"é\":1}]";
+    let input = format!("{prefix}{payload} more text");
+    let start = prefix.chars().count();
+    let end = start + payload.chars().count();
+    let error = run("parse_json", vec![json!(input)]).unwrap_err();
+    assert_eq!(
+        error.hint.unwrap(),
+        format!("a JSON value spans characters {start}..{end}; try substring(s, {start}, {end})")
+    );
+    let slice = run("substring", vec![json!(input), json!(start), json!(end)]).unwrap();
+    let parsed = builtins::call(
+        "parse_json",
+        vec![slice],
+        &mut Budget::default(),
+        Span::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        parsed
+            .to_json(&mut Budget::default(), Span::default(), false)
+            .unwrap(),
+        serde_json::from_str::<Json>(payload).unwrap()
+    );
+}
+
+#[test]
+fn json_leading_probe_only_attempts_first_container() {
+    for (input, hint) in [
+        (
+            "prefix {bad} [1]",
+            "the first { is at character 7; try substring(s, 7)",
+        ),
+        (
+            "prefix [bad] {}",
+            "the first [ is at character 7; try substring(s, 7)",
+        ),
+        (
+            "prefix [",
+            "the first [ is at character 7; try substring(s, 7)",
+        ),
+        (
+            "text [1] suffix",
+            "a JSON value spans characters 5..8; try substring(s, 5, 8)",
+        ),
+        (
+            "not JSON {}",
+            "a JSON value spans characters 9..11; try substring(s, 9, 11)",
+        ),
+        (
+            "prefix 12",
+            "expected a JSON value: {, [, \", a number, true, false or null",
+        ),
+        (
+            "",
+            "expected a JSON value: {, [, \", a number, true, false or null",
+        ),
+    ] {
+        let error = run("parse_json", vec![json!(input)]).unwrap_err();
+        assert!(error.message.contains("not a JSON value"), "{error:?}");
+        assert_eq!(error.hint.as_deref(), Some(hint), "{input}");
+    }
+}
+
+#[test]
+fn malformed_json_keeps_parser_detail_and_an_in_string_scalar_position() {
+    let input = "{\n\"é🙂\": ?}";
+    let error = run("parse_json", vec![json!(input)]).unwrap_err();
+    let position = input[..input.find('?').unwrap()].chars().count();
+    assert_eq!(
+        error.message,
+        format!(
+            "invalid JSON: {}",
+            serde_json::from_str::<Json>(input).unwrap_err()
+        )
+    );
+    assert_eq!(
+        error.hint.unwrap(),
+        format!("check the JSON syntax at character {position} in the input string (zero-based)")
+    );
+    for input in [
+        "[1,]",
+        "{\"a\":",
+        "\"unterminated",
+        "1e",
+        "tru",
+        "-",
+        "[oops] prefix {}",
+    ] {
+        let error = run("parse_json", vec![json!(input)]).unwrap_err();
+        assert!(
+            error
+                .hint
+                .unwrap()
+                .contains("in the input string (zero-based)"),
+            "{input}"
+        );
+    }
+}
+
+#[test]
+fn json_excerpts_are_escaped_and_bounded() {
+    let error = run(
+        "parse_json",
+        vec![json!(format!("[] \"\\\n\t\u{0000}{}", "🙂".repeat(80)))],
+    )
+    .unwrap_err();
+    let excerpt = error.message.split_once("followed by ").unwrap().1;
+    assert!(excerpt.starts_with("\"\\\"\\\\\\n\\t\\u0000"), "{excerpt}");
+    assert!(excerpt.ends_with("…\""));
+    assert!(excerpt.chars().count() <= 42);
+    assert!(!excerpt.contains(['\n', '\t', '\0']));
+}
+
+#[test]
+fn json_diagnostic_probe_obeys_fuel_and_value_limits() {
+    let input = "prefix [1, 2] suffix";
+    // Initial parsing, diagnostic scanning and offset counting fit; the extra parse does not.
+    let mut budget = Budget {
+        remaining: (input.len() * 3 + 1 + 7) as u64,
+        ..Budget::default()
+    };
+    let error = builtins::call(
+        "parse_json",
+        values(vec![json!(input)]),
+        &mut budget,
+        Span::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.category, Category::Limit);
+    assert!(error.message.contains("budget exhausted"));
+    let input = format!("prefix {}0{}", "[".repeat(65), "]".repeat(65));
+    assert_eq!(
+        run("parse_json", vec![json!(input)]).unwrap_err().category,
+        Category::Limit
+    );
+}

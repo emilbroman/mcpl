@@ -130,6 +130,12 @@ Call `help` with `{}` for the server/builtin overview, `{"topic":"map"}` for a
 builtin, or `{"topic":"playwright.browser_navigate"}` for a tool's signature and
 description. Help does not evaluate code or create bindings.
 
+Tools without `outputSchema` return `Content[]`. Use `parse_json(text(r))` when
+that text is JSON. If a result wraps JSON in Markdown or other text, isolate it
+first with `substring`, `split`, or `index_of` (see `help parse_json`). Parsing
+stays strict: errors identify the JSON value's bounds or the first candidate's
+start, using zero-based Unicode scalar positions compatible with `substring`.
+
 Call `show` with `{"expression":"res1"}` to display `[2, 4, 6]` without allocating
 a new name. Its optional disclosure controls adjust truncation under hard caps;
 output is at most 64 KiB. Functions, servers and tools display their type.

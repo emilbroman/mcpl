@@ -96,6 +96,21 @@ parsed as JSON and validated. Without `outputSchema`, the value is always the
 `content` array, even if structured content also exists. Tool-reported errors
 are checked first and retain the tool's text. No tool retry is automatic.
 
+For schema-less `Content[]` results, `text(r)` extracts text and
+`parse_json(text(r))` parses it only when that text is JSON. Wrapped JSON must
+first be isolated with `substring`, `split`, or `index_of`; `help parse_json`
+includes this recipe. Parsing stays strict and never silently extracts a value.
+Errors retain the runtime category and program-source caret, while identifying
+positions within the input string: zero-based Unicode scalar offsets, with
+half-open bounds usable directly by `substring` (not UTF-8 byte offsets).
+Trailing-data errors give the complete value's end, an escaped excerpt of about
+40 characters with `…` if truncated, and a `substring(s, 0, N)` hint.
+Leading-data errors probe only the first `{` or `[`: a complete value gives
+`M..N` bounds and `substring(s, M, N)`; an incomplete candidate gives its start
+and `substring(s, M)` without claiming success. No candidate gives the expected
+JSON starters instead. Malformed JSON errors identify the in-string position.
+The diagnostic scan and at most one extra parse attempt are fuel-metered.
+
 `help` uses discovered signatures and descriptions. Builtin documentation comes
 from the checked-in normative standard-library tables. Recursive definitions
 are printed once when relevant; the fixed `Content` definition is not expanded

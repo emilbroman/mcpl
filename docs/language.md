@@ -72,7 +72,7 @@ Run an MCPL program. MCPL is a small statically typed scripting language for cal
 
 A program is a sequence of statements, each ending in `;`: either `name = expression;` or `expression;`. Every statement creates a binding that persists for this session; unnamed ones are called res1, res2, …. The result lists each new binding as `name: type (size) = truncated preview`. Later programs refer to bindings by name to drill in (`res1[0].title;`). A name can never be reassigned.
 
-Values are JSON (keys may be unquoted, trailing commas allowed); raw strings `r"..."` take no escapes — use them for regexes. Call a tool as `server.tool({...args})`; tools without an output schema return `Content[]`, and `text(x)` gives their text. Fields: `x.key` or `x["key"]`; items: `x[i]`. Lambdas: `(x) => expr`. Inside parentheses or other brackets, `;` sequences expressions and `name = expr;` makes a local: `(x = f(); g(x))`. Operators `+ - * / == != < <= > >= && || !` must have spaces around them (names may contain `-`); `c ? a : b`; `+` also joins strings. Conditions must be boolean; there are no implicit conversions and no loops — iterate with built-ins like map, filter, reduce. Any error (bad index, failed tool call, exceeded limit) stops the program; earlier bindings are kept.
+Values are JSON (keys may be unquoted, trailing commas allowed); raw strings `r"..."` take no escapes — use them for regexes. Call a tool as `server.tool({...args})`; tools without an output schema return `Content[]`, and `text(x)` gives their text; use `parse_json(text(x))` when that text is JSON. Fields: `x.key` or `x["key"]`; items: `x[i]`. Lambdas: `(x) => expr`. Inside parentheses or other brackets, `;` sequences expressions and `name = expr;` makes a local: `(x = f(); g(x))`. Operators `+ - * / == != < <= > >= && || !` must have spaces around them (names may contain `-`); `c ? a : b`; `+` also joins strings. Conditions must be boolean; there are no implicit conversions and no loops — iterate with built-ins like map, filter, reduce. Any error (bad index, failed tool call, exceeded limit) stops the program; earlier bindings are kept.
 
 Use `help` to list servers, tools, signatures and built-ins, and `show` to read a value in full.
 ```
@@ -1631,7 +1631,7 @@ These do not introduce an integer type. All take and return f64 values.
 
 | Signature | Documentation and edge behavior |
 | --- | --- |
-| `parse_json(s: string) => any` | Parse strict JSON only, not MCPL bare keys/trailing commas/comments. Invalid JSON or non-finite numbers fail. Enforce all value limits. |
+| `parse_json(s: string) => any` | Parse strict JSON only, not MCPL bare keys/trailing commas/comments. Invalid JSON or non-finite numbers fail. Enforce all value limits. Tools without `outputSchema` return `Content[]`; `parse_json(text(r))` parses them when the text is JSON. If JSON is wrapped in other text, isolate it first (`substring`, `split`, `index_of`); the error identifies the JSON bounds. |
 | `to_json(value: any) => string` | Compact JSON for JSON values; functions/servers/tools render their type, not an executable encoding. Nested non-JSON policy is in section 7. |
 | `text(blocks: Content[]) => string` | Concatenate only `type: "text"` blocks with `"\n"`. No text blocks yields `""`; do not decode images/audio/resources. |
 
@@ -1640,6 +1640,31 @@ proposed: preserve the object's key order, emit legal compact JSON, escape
 control characters and quotes, preserve other Unicode scalars)**. `parse_json`
 is deliberately typed `any`; runtime checks or a tool schema must establish
 stronger requirements. No builtin performs filesystem/network I/O.
+
+`parse_json` remains strict: diagnostics do not extract JSON or accept surrounding
+non-whitespace text. Bounds in diagnostics are **zero-based Unicode scalar
+positions in the original string**, not UTF-8 byte offsets or program-source
+positions. Spans `M..N` are half-open, matching `substring(s, M, N)`; leading
+whitespace counts toward both bounds. Diagnostic excerpts are escaped, limited
+to about 40 characters, and marked with `…` when truncated.
+
+- **Trailing data:** when a complete JSON value starts after optional whitespace
+  but non-whitespace text follows, report `invalid JSON: a complete JSON value
+  ends at character N, followed by "<excerpt>"`. Hint: `isolate the JSON before
+  parsing, e.g. substring(s, 0, N), or split on the text that follows it`.
+- **Leading data:** when the string does not start with a JSON value after
+  optional whitespace, report `invalid JSON: the string starts with
+  "<excerpt>", not a JSON value`. Probe only the first `{` or `[` in the string.
+  If a complete value parses there, hint `a JSON value spans characters M..N;
+  try substring(s, M, N)`. Otherwise, hint `the first { is at character M; try
+  substring(s, M)` (or `[` as appropriate). This is a candidate, not a promise
+  that the substring parses; do not search later candidates. If neither marker
+  exists, hint `expected a JSON value: {, [, ", a number, true, false or null`.
+- **Malformed JSON:** retain the precise parser error and identify its position
+  within the input string, rather than suggesting a generic retry.
+
+The leading-data probe makes at most one extra parse attempt. Scanning and
+probing consume fuel under the usual resource limits.
 
 ### Meta
 
